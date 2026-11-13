@@ -9,6 +9,8 @@ struct BookingStreamView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var focused: Bool
     @AppStorage("showAccountAnalytics") private var showAnalytics: Bool = false
+    /// View › "Auswertungen anzeigen" (GitHub #233): hides the charts and analysis cards.
+    @AppStorage(ViewLayout.statisticsKey) private var showStatistics: Bool = true
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSize
     @State private var showCashflowIOS = false
@@ -52,7 +54,7 @@ struct BookingStreamView: View {
                         }
                         if model.scope == .investments {
                             InvestmentDashboardView()
-                        } else if !model.allAccounts.isEmpty, isOverview || showAnalytics {
+                        } else if showStatistics, !model.allAccounts.isEmpty, isOverview || showAnalytics {
                             // Overview: always; single account: only when toggled on.
                             #if os(iOS)
                             DisclosureGroup("Cashflow-Analyse", isExpanded: $showCashflowIOS) {
@@ -243,7 +245,7 @@ struct BookingStreamView: View {
                     #endif
                     if !emptyVault {
                         StreamHeaderCard()
-                        if !isOverview && !isDepot && model.scope != .investments && !model.allAccounts.isEmpty {
+                        if showStatistics && !isOverview && !isDepot && model.scope != .investments && !model.allAccounts.isEmpty {
                             HStack {
                                 Button {
                                     withAnimation(Motion.animation(.easeInOut(duration: 0.25))) { showAnalytics.toggle() }
@@ -698,6 +700,7 @@ struct WindowTitle: ViewModifier {
 /// added; every command is also in the menu bar. iOS: unchanged.
 struct MainToolbar: ViewModifier {
     @Environment(AppModel.self) private var model
+    @AppStorage(ViewLayout.inspectorKey) private var showInspector = true
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -712,6 +715,9 @@ struct MainToolbar: ViewModifier {
                     Button { model.showPrintSheet = true } label: { Label("Drucken …", systemImage: "printer") }
                     Button { model.openRuleEditor() } label: { Label("Regeln", systemImage: "wand.and.stars") }
                     Button { model.showSettings = true } label: { Label("Einstellungen", systemImage: "gearshape") }
+                    if model.hasOwnVault {
+                        Button { model.lock() } label: { Label("Tresor sperren", systemImage: "lock") }
+                    }
                     if model.demoActive && (model.hasOwnVault || AppModel.vaultMayHoldRealData) {
                         Button { model.showOwnVault() } label: { Label("Zurück zum eigenen Tresor", systemImage: "lock.open") }
                     } else if !model.demoActive {
@@ -736,6 +742,10 @@ struct MainToolbar: ViewModifier {
                     .help(model.bankingBlocksAll ? (BankingPolicy.shared.gate?.message ?? "") : String(localized: "Alle Konten abrufen (⌘R)"))
                     .disabled(model.bankingBlocksAll)
             }
+            ToolbarItem(id: "inspector", placement: .primaryAction) {
+                Button { showInspector.toggle() } label: { Label("Informationen", systemImage: "sidebar.trailing") }
+                    .help(showInspector ? String(localized: "Informationen ausblenden (⌥⌘I)") : String(localized: "Informationen einblenden (⌥⌘I)"))
+            }
             ToolbarItem(id: "palette", placement: .primaryAction, showsByDefault: false) {
                 Button { model.showCommandPalette = true } label: { Label("Befehle", systemImage: "command") }
                     .help("Befehlspalette (⌘K)")
@@ -751,6 +761,11 @@ struct MainToolbar: ViewModifier {
             ToolbarItem(id: "rules", placement: .primaryAction, showsByDefault: false) {
                 Button { model.openRuleEditor() } label: { Label("Regeln", systemImage: "wand.and.stars") }
                     .help("Kategorisierungsregeln … (⌥⌘K)")
+            }
+            ToolbarItem(id: "lock", placement: .primaryAction, showsByDefault: false) {
+                Button { model.lock() } label: { Label("Tresor sperren", systemImage: "lock") }
+                    .help("Tresor sperren (⌃⌘L)")
+                    .disabled(!model.hasOwnVault)
             }
             ToolbarItem(id: "settings", placement: .primaryAction, showsByDefault: false) {
                 SettingsLink { Label("Einstellungen", systemImage: "gearshape") }

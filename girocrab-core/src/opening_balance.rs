@@ -27,8 +27,11 @@ use crate::i18n::{tr, trf};
 use crate::vault::Vault;
 
 /// Accounts whose balance is computed from bookings (SQL condition on `a`).
+/// A MoneyMoney import shows its accounts under their bank login right away,
+/// but until a sync takes one over (new `external_ref`) the bank has never
+/// reported a balance for it: it still counts as computed (#212).
 pub(crate) const DERIVED_SQL: &str = "a.deleted_ms IS NULL AND a.kind NOT IN ('brokerage', 'loan')
-     AND (a.connection_id IS NULL OR a.balance_derived = 1)";
+     AND (a.connection_id IS NULL OR a.balance_derived = 1 OR a.external_ref LIKE 'moneymoney-db:%')";
 
 fn invalid(message: String) -> CoreError {
     CoreError::InvalidInput { message }

@@ -448,9 +448,7 @@ struct MoneyMoneyDatabaseImportView: View {
     private func footerText(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(.caption).foregroundStyle(Theme.secondary)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .leadingFooter()
     }
 
     private func bankRow(_ b: MoneyMoneyDbBank) -> some View {
@@ -590,6 +588,7 @@ struct MoneyMoneyDatabaseImportView: View {
                 Link("Anwendungen auf enablebanking.com öffnen", destination: URL(string: "https://enablebanking.com/cp/applications")!)
                     .font(.caption)
             }
+            .leadingFooter()
         }
     }
 

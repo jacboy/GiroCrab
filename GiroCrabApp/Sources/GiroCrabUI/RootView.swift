@@ -8,6 +8,8 @@ public struct GiroCrabScenes: Scene {
     @State private var model: AppModel
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewLayout.inspectorKey) private var showInspector = true
+    @AppStorage(ViewLayout.statisticsKey) private var showStatistics = true
     #endif
 
     public init(options: LaunchOptions = .current) {
@@ -149,8 +151,16 @@ public struct GiroCrabScenes: Scene {
             // `Group`: a CommandsBuilder takes at most 10 children (older Xcode in CI).
             Group {
                 // Hilfe › Mitteilungen …: ellipsis because a window opens.
-                CommandGroup(after: .help) {
+                // Replaces the default Help menu ("Help isn't available for …").
+                CommandGroup(replacing: .help) {
+                    Button("GiroCrab-Hilfe") { openWindow(id: "help") }
+                        .keyboardShortcut("?", modifiers: .command)
+                    Divider()
                     Button("Mitteilungen …") { openWindow(id: "announcements") }
+                    Divider()
+                    Link("Webseite & Dokumentation (girocrab.de)", destination: HelpLinks.website)
+                    Link("Fehler melden / Issue erstellen (GitHub)", destination: HelpLinks.issues)
+                    Link("Community & Diskussionen (GitHub)", destination: HelpLinks.discussions)
                 }
                 // Bearbeiten › Suchen …: focuses the toolbar search field.
                 CommandGroup(after: .pasteboard) {
@@ -163,6 +173,12 @@ public struct GiroCrabScenes: Scene {
             SidebarCommands()
             ToolbarCommands()
             CommandGroup(after: .sidebar) {
+                Button(showInspector ? "Informationen ausblenden" : "Informationen einblenden") { showInspector.toggle() }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                    .disabled(model.vault == nil)
+                Toggle("Auswertungen anzeigen", isOn: $showStatistics)
+                    .disabled(model.vault == nil)
+                Divider()
                 Button("Befehlspalette …") { model.showCommandPalette = true }
                     .keyboardShortcut("k", modifiers: .command)
                     .disabled(model.vault == nil)
@@ -194,6 +210,10 @@ public struct GiroCrabScenes: Scene {
                 .environment(model)
         }
         .defaultSize(width: 900, height: 520)
+        Window("GiroCrab-Hilfe", id: "help") {
+            NavigationStack { HelpView() }
+        }
+        .defaultSize(width: 640, height: 720)
         Settings {
             // HIG: the Settings window fits each tab (SettingsView sizes them).
             SettingsView()
@@ -286,11 +306,16 @@ struct LockView: View {
     /// Keychain prompt the user hasn't noticed (behind the window, other screen).
     @State private var waitingLong = false
 
+    private var crabPhase: AnimatedCrabLogoView.Phase {
+        if model.unlockCelebrating { return .unlocked }
+        if error != nil { return .failed }
+        if case .unlocking = model.vaultState { return .unlocking }
+        return .idle
+    }
+
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(Theme.accent)
+            AnimatedCrabLogoView(size: 120, phase: crabPhase)
             Text("GiroCrab ist gesperrt")
                 .font(.title.bold())
             Text("Ihre Buchungen liegen in einem verschlüsselten Tresor.\nDer Schlüssel verlässt nie den Schlüsselbund dieses Geräts.")
@@ -345,43 +370,72 @@ struct MainSplitView: View {
     @Environment(AppModel.self) private var model
     #if os(macOS)
     @State private var columns: NavigationSplitViewVisibility = .all
+    @AppStorage(ViewLayout.inspectorKey) private var showInspector = true
     @Environment(\.openSettings) private var openSettings
     #else
     @State private var columns: NavigationSplitViewVisibility = .automatic
     #endif
 
-    var body: some View {
-        @Bindable var model = model
-        NavigationSplitView(columnVisibility: $columns) {
-            SidebarView()
-                .frame(minHeight: 0, maxHeight: .infinity)
-                .macColumnWidth(min: 240, ideal: 260, max: 480)
-        } content: {
-            Group {
-                if model.sidebarSelection == .documents {
-                    DocumentsView()
-                } else {
-                    BookingStreamView()
-                }
-            }
-            #if os(macOS)
-            // The customizable toolbar belongs to the column, not to the view in
-            // it: its items must stay when Belege replaces the booking list
-            // (AppKit crashes on customizable items that come and go).
-            .modifier(MainToolbar())
-            // Window title for both views here too, so the toolbar keeps the same
-            // compact style (and height) when switching to Belege.
-            .modifier(WindowTitle(title: model.title))
-            #endif
+    private var sidebar: some View {
+        SidebarView()
             .frame(minHeight: 0, maxHeight: .infinity)
-            // min widths still sum to 1080 pt (240 + 560 + 280) so the minimum window size stays as before
-            .macColumnWidth(min: 560, ideal: 700)
+            .macColumnWidth(min: 240, ideal: 260, max: 480)
+    }
+
+    private var bookingColumn: some View {
+        Group {
+            if model.sidebarSelection == .documents {
+                DocumentsView()
+            } else {
+                BookingStreamView()
+            }
+        }
+        #if os(macOS)
+        // The customizable toolbar belongs to the column, not to the view in
+        // it: its items must stay when Belege replaces the booking list
+        // (AppKit crashes on customizable items that come and go).
+        .modifier(MainToolbar())
+        // Window title for both views here too, so the toolbar keeps the same
+        // compact style (and height) when switching to Belege.
+        .modifier(WindowTitle(title: model.title))
+        #endif
+        .frame(minHeight: 0, maxHeight: .infinity)
+    }
+
+    #if os(macOS)
+    /// macOS: the detail column is a system inspector (HIG "Inspectors"), toggled
+    /// from the toolbar and View menu; the state is remembered (GitHub #234).
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+        } detail: {
+            // min widths: 240 (sidebar) + 560 + 280 (inspector) keep the minimum window size
+            bookingColumn
+                .macColumnWidth(min: 560, ideal: 700)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .inspector(isPresented: $showInspector) {
+            InspectorView()
+                .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
+        }
+    }
+    #else
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+        } content: {
+            bookingColumn
         } detail: {
             InspectorView()
                 .frame(minHeight: 0, maxHeight: .infinity)
-                .macColumnWidth(min: 280, ideal: 320, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
+    }
+    #endif
+
+    var body: some View {
+        @Bindable var model = model
+        splitView
         .quickLookPreview($model.quickLookURL)
         .accountGroupDialogs($model.groupDialog)
         .newCategoryDialog()
@@ -521,18 +575,16 @@ struct MainSplitView: View {
     }
 }
 
-/// The launch-screen logo (asset `LaunchLogo`, 120 pt, centred).
+/// The launch-screen logo (asset `LaunchLogo`, 120 pt, centred), continued as the animated crab.
+/// Same 360-pt artwork grid and backdrop as the launch image, so the hand-off has no jump.
 private struct StartLogo: View {
     var body: some View {
-        #if os(iOS)
-        if let img = UIImage(named: "LaunchLogo") {
-            Image(uiImage: img).resizable().frame(width: 120, height: 120)
-        } else {
-            Image(systemName: "lock.shield.fill").font(.system(size: 54)).foregroundStyle(Theme.accent)
+        // Square #263040 like the launch image (no squircle corners), crab on top.
+        ZStack {
+            Rectangle().fill(Color(red: 0x26 / 255, green: 0x30 / 255, blue: 0x40 / 255))
+            AnimatedCrabLogoView(size: 120, phase: .idle, showBackgroundSquircle: false)
         }
-        #else
-        Image(systemName: "lock.shield.fill").font(.system(size: 54)).foregroundStyle(Theme.accent)
-        #endif
+        .frame(width: 120, height: 120)
     }
 }
 

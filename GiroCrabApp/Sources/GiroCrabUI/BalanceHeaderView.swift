@@ -93,6 +93,7 @@ struct StreamHeaderCard: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
     @State private var showDocuments = false
+    @AppStorage(ViewLayout.statisticsKey) private var showStatistics: Bool = true
 
     private var account: Account? {
         if case .account(let id) = model.sidebarSelection { return model.account(for: id) }
@@ -160,7 +161,7 @@ struct StreamHeaderCard: View {
             if isDepot {
                 depotRow
             } else {
-                if model.scope != .investments {
+                if showStatistics && model.scope != .investments {
                     // iOS: 44 pt = HIG minimum hit region (the chart is tappable);
                     // macOS: room for the min/max/0 axis labels (GitHub #203).
                     #if os(iOS)

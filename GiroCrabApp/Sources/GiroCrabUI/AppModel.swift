@@ -281,6 +281,8 @@ public final class AppModel {
     /// Manual loans (GitHub #36), see ManualLoansUI.swift.
     @ObservationIgnored let loanStore = ManualLoanStore()
     var vaultState: VaultState = .locked
+    /// The vault is open and the lock screen shows the crab's unlock hop for a moment.
+    var unlockCelebrating = false
 
     // Data
     var groups: [AccountGroup] = [] {
@@ -959,7 +961,8 @@ public final class AppModel {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("GiroCrab", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("tresor.girocrab")
+        // Keychain bypass (dev): separate file, so the real vault is never opened with the throw-away key.
+        return base.appendingPathComponent(VaultKeyManager.keychainBypassed ? "tresor-dev.girocrab" : "tresor.girocrab")
     }
 
     func unlock() {
@@ -980,6 +983,12 @@ public final class AppModel {
                 let v = try Vault.open(path: Self.vaultURL.path, key: key)
                 _ = try v.seedStarterCategories()
                 self.ownVault = v
+                // Let the crab's unlock hop play on the lock screen before the main view replaces it.
+                if !Motion.reduced {
+                    self.unlockCelebrating = true
+                    try? await Task.sleep(for: .milliseconds(320))
+                }
+                defer { self.unlockCelebrating = false }
                 if try v.accountCount() == 0 && self.connectionsExist(v) == false {
                     // Nothing synced yet: show demo bookings so the UI can be judged.
                     UserDefaults.standard.set(false, forKey: Self.realDataKey)
@@ -2424,6 +2433,10 @@ public final class AppModel {
 
     /// Select the booking and put the cursor into its note field in the inspector.
     func editNote(for booking: Booking) {
+        #if os(macOS)
+        // the note lives in the inspector: show it if it was hidden (the field claims the focus when it appears)
+        UserDefaults.standard.set(true, forKey: ViewLayout.inspectorKey)
+        #endif
         selectedBookingID = booking.id
         pendingNoteFocus = booking.id
     }

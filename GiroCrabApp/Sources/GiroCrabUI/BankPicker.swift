@@ -94,9 +94,7 @@ struct AddFormFooter: View {
             Text("Gibt es den Zugang schon (gleiche Bank, gleiche Kennung), wird er aktualisiert statt doppelt angelegt.")
         }
         .font(.caption).foregroundStyle(.secondary)
-        .multilineTextAlignment(.leading) // wrapped lines stay left-aligned
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .leadingFooter()
     }
 }
 

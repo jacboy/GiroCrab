@@ -69,12 +69,24 @@ struct SettingsView: View {
 /// Allgemein: app language (#93). Usable without an open vault.
 struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var showHelp = false
+    @AppStorage(ViewLayout.statisticsKey) private var showStatistics = true
 
     var body: some View {
         @Bindable var model = model
         Form {
+            Section {
+                Button { showHelp = true } label: {
+                    Label("Hilfe & FAQ", systemImage: "questionmark.circle")
+                }
+            }
             LanguageSettingsSection()
             AnnouncementsSettingsSection()
+            Section("Ansicht") {
+                Toggle("Auswertungen in der Übersicht anzeigen", isOn: $showStatistics)
+                Text("Blendet Saldoverlauf, Cashflow und Budgets über der Buchungsliste aus. Auch im Menü Ansicht umschaltbar.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Buchungen") {
                 Picker("Als geprüft markieren", selection: $model.autoReviewDelay) {
                     ForEach(AutoReviewDelay.allCases) { Text($0.title).tag($0) }
@@ -95,6 +107,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showHelp) { HelpSheet() }
     }
 }
 
@@ -266,7 +279,9 @@ struct CredentialsSettings: View {
                         Text("GiroCrab-Registrierung (empfohlen)").tag("builtin")
                         Text("Eigene Registrierung").tag("own")
                     }
+                    #if os(macOS)
                     .pickerStyle(.radioGroup)
+                    #endif
                 }
                 // The own ID is entered right here, only when it is the one in use.
                 if !model.fintsBuiltinAvailable || model.fintsProductIDMode == "own" {
@@ -444,12 +459,28 @@ struct DocumentFolderSettings: View {
 
 struct SecuritySettings: View {
     @Environment(AppModel.self) private var model
+    @State private var requireBiometrics = VaultKeyManager.shared.requireBiometrics
 
     var body: some View {
         Form {
             Section("Tresor") {
                 LabeledContent("Verschlüsselung", value: "SQLCipher 4 (AES-256)")
                 LabeledContent("Hauptschlüssel", value: model.isDemo ? String(localized: "Demo-Schlüssel (Wegwerf)") : String(localized: "Schlüsselbund, geschützt durch \(VaultKeyManager.shared.biometryName)"))
+                #if os(macOS)
+                if !model.isDemo {
+                    Toggle("Beim Entsperren \(VaultKeyManager.shared.biometryName) verlangen", isOn: $requireBiometrics)
+                        .onChange(of: requireBiometrics) { _, on in
+                            guard on != VaultKeyManager.shared.requireBiometrics else { return }
+                            Task {
+                                do { try await VaultKeyManager.shared.setRequireBiometrics(on) }
+                                catch {
+                                    requireBiometrics = VaultKeyManager.shared.requireBiometrics
+                                    model.toast = error.localizedDescription
+                                }
+                            }
+                        }
+                }
+                #endif
                 LabeledContent("Datei", value: model.vault?.filePath() ?? "–")
                     .textSelection(.enabled)
                 LabeledContent("Version", value: AppVersionDisplay.current(core: coreVersion()))
@@ -529,14 +560,15 @@ struct UpdateSettings: View {
                 Button("Nach Updates suchen …") { updates.checkForUpdates() }
                     .disabled(!updates.canCheckForUpdates)
             } footer: {
-                switch updates.channel {
+                Group { switch updates.channel {
                 case .stable:
                     Text("Updates werden nur installiert, wenn sie mit dem GiroCrab-Schlüssel signiert und von Apple notarisiert sind.")
                 case .beta:
                     Text("Beta-Versionen sind Vorabversionen zum Testen. Neuere stabile Versionen erhalten Sie weiterhin. Ein Wechsel zurück installiert keine ältere Version.")
                 case .nightly:
                     Text("Nightly-Builds sind ungetestete Entwicklungsstände. Neuere Beta- und stabile Versionen erhalten Sie weiterhin. Ein Wechsel zurück installiert keine ältere Version.")
-                }
+                } }
+                .leadingFooter()
             }
         }
         .formStyle(.grouped)

@@ -240,6 +240,7 @@ struct RecurringSheet: View {
                         Text("Noch offen: \(Money.format(-m.openExpenseCents)) Ausgaben, \(Money.format(m.openIncomeCents)) Einnahmen · bereits gebucht: \(Money.format(-m.bookedExpenseCents))")
                             .font(.caption)
                             .foregroundStyle(Theme.secondary)
+                            .leadingFooter()
                     }
                 }
                 Section {

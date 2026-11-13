@@ -59,6 +59,57 @@ public final class VaultKeyManager: @unchecked Sendable {
         set { UserDefaults.standard.set(newValue, forKey: Self.syncDefaultsKey) }
     }
 
+    private static func envFlag(_ name: String) -> Bool {
+        ProcessInfo.processInfo.environment[name].map { ["1", "true", "yes"].contains($0.lowercased()) } ?? false
+    }
+
+    /// Developer bypass: with `GIROCRAB_NO_KEYCHAIN=1` or `GIROCRAB_DEMO_SEED=1` the Keychain
+    /// is never touched (ad-hoc `swift run` binaries get a new CDHash per build, so the
+    /// "access key de.girocrab.vault" password prompt would reappear every time).
+    /// The vault then uses a separate file (`AppModel.vaultURL`) with a fixed throw-away key,
+    /// so the real vault is neither opened nor modified.
+    public static var keychainBypassed: Bool {
+        envFlag("GIROCRAB_NO_KEYCHAIN") || envFlag("GIROCRAB_DEMO_SEED")
+    }
+
+    /// In bypass mode the real Touch ID check still runs, except for demo seed runs
+    /// (no prompts) or when the user switched "require Touch ID" off.
+    static var biometricsPromptInBypass: Bool {
+        !envFlag("GIROCRAB_DEMO_SEED") && shared.requireBiometrics
+    }
+
+    private static let devKey = Data(repeating: 0x42, count: 32)
+
+    /// Whether unlocking asks for Touch ID / Face ID. Only macOS can switch it off
+    /// (the key is then stored without a biometric access flag); iOS always asks.
+    public static let requireBiometricsDefaultsKey = "girocrab.requireBiometrics"
+    public var requireBiometrics: Bool {
+        #if os(macOS)
+        UserDefaults.standard.object(forKey: Self.requireBiometricsDefaultsKey) as? Bool ?? true
+        #else
+        true
+        #endif
+    }
+
+    /// Re-stores the existing key with or without the biometric requirement.
+    public func setRequireBiometrics(_ enabled: Bool) async throws {
+        if Self.keychainBypassed {
+            // Dev bypass: no stored key to re-protect, only the preference changes.
+            UserDefaults.standard.set(enabled, forKey: Self.requireBiometricsDefaultsKey)
+            return
+        }
+        var key = try await unlock()
+        defer { key.resetBytes(in: 0..<key.count) }
+        let previous = requireBiometrics
+        UserDefaults.standard.set(enabled, forKey: Self.requireBiometricsDefaultsKey)
+        do {
+            try replaceStoredKey(with: key, previous: key, syncing: syncViaICloudKeychain)
+        } catch {
+            UserDefaults.standard.set(previous, forKey: Self.requireBiometricsDefaultsKey)
+            throw error
+        }
+    }
+
     /// Re-stores the existing key with the chosen synchronizable setting.
     public func setICloudKeychainSync(_ enabled: Bool) async throws {
         var key = try await unlock()
@@ -100,16 +151,26 @@ public final class VaultKeyManager: @unchecked Sendable {
     public func unlock(reason: String = String(localized: "GiroCrab-Tresor entsperren"), allowCreate: Bool = false) async throws -> Data {
         let context = LAContext()
         context.localizedCancelTitle = String(localized: "Abbrechen")
-        var err: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
-            throw KeyError.biometryUnavailable(err?.localizedDescription ?? String(localized: "kein Gerätecode eingerichtet"))
+        if Self.keychainBypassed {
+            // Dev: never touch the Keychain. Touch ID stays active (unless it is switched
+            // off or this is a demo seed run); afterwards the throw-away key is returned.
+            lastUnlockCreatedKey = false
+            if Self.biometricsPromptInBypass { try await authenticate(context: context, reason: reason) }
+            return Self.devKey
         }
-        do {
-            let ok = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
-            if !ok { throw KeyError.cancelled }
-        } catch let e as LAError where e.code == .userCancel || e.code == .appCancel || e.code == .systemCancel {
-            throw KeyError.cancelled
+        if !requireBiometrics {
+            // No Touch ID prompt: the key sits in the keychain without a biometric flag.
+            if let key = try read(context: context) {
+                lastUnlockCreatedKey = false
+                return key
+            }
+            guard allowCreate else { throw KeyError.keyMissing }
+            let key = GiroCrabCore.generateMasterKey()
+            lastUnlockCreatedKey = true
+            try store(key)
+            return key
         }
+        try await authenticate(context: context, reason: reason)
         if let key = try read(context: context) {
             lastUnlockCreatedKey = false
             return key
@@ -120,6 +181,37 @@ public final class VaultKeyManager: @unchecked Sendable {
         try store(key)
         return key
     }
+
+    /// Runs the real `LAContext` check (Touch ID / passcode).
+    private func authenticate(context: LAContext, reason: String) async throws {
+        var err: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            throw KeyError.biometryUnavailable(err?.localizedDescription ?? String(localized: "kein Gerätecode eingerichtet"))
+        }
+        #if os(macOS)
+        await Self.bringAppToFront()
+        #endif
+        do {
+            let ok = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+            if !ok { throw KeyError.cancelled }
+        } catch let e as LAError where e.code == .userCancel || e.code == .appCancel || e.code == .systemCancel {
+            throw KeyError.cancelled
+        }
+    }
+
+    #if os(macOS)
+    /// The Touch ID sheet only receives sensor focus when the app is frontmost;
+    /// right after launch (`swift run`) it often is not yet, and the finger is
+    /// ignored until the user clicks the dialog.
+    @MainActor
+    private static func bringAppToFront() async {
+        let app = NSApplication.shared
+        if app.activationPolicy() != .regular { app.setActivationPolicy(.regular) }
+        guard !app.isActive else { return }
+        app.activate(ignoringOtherApps: true)
+        try? await Task.sleep(for: .milliseconds(80))
+    }
+    #endif
 
     /// Key as Base64 for manual transfer to another device (after authentication).
     public func exportKeyBase64() async throws -> String {
@@ -246,7 +338,8 @@ public final class VaultKeyManager: @unchecked Sendable {
             if status != errSecMissingEntitlement { throw KeyError.keychain(status) }
         }
         var acError: Unmanaged<CFError>?
-        if let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &acError) {
+        let flags: SecAccessControlCreateFlags = requireBiometrics ? .userPresence : []
+        if let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, &acError) {
             var q = baseQuery()
             q[kSecValueData as String] = key
             q[kSecAttrAccessControl as String] = access

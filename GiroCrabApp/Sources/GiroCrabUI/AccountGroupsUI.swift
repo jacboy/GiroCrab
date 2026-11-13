@@ -528,7 +528,7 @@ struct AccountGroupsSettings: View {
                 .onMove { model.moveUserGroups(from: $0, to: $1) }
                 .onDelete { idx in dialog = idx.first.map { .delete(model.namedUserGroups[$0]) } }
             } footer: {
-                Text(footer)
+                Text(footer).leadingFooter()
             }
             Section {
                 Button("Neue Gruppe …", systemImage: "folder.badge.plus") { dialog = .create() }
@@ -644,7 +644,7 @@ struct GroupDetailEditor: View {
                         }
                     }
                 } footer: {
-                    Text("Summe, Buchungsliste und Saldoverlauf einer Gruppe enthalten auch ihre Untergruppen.")
+                    Text("Summe, Buchungsliste und Saldoverlauf einer Gruppe enthalten auch ihre Untergruppen.").leadingFooter()
                 }
                 Section {
                     Toggle("In Gesamtsumme einbeziehen", isOn: Binding(
@@ -655,6 +655,7 @@ struct GroupDetailEditor: View {
                     Text(g.includeInTotal && !g.inTotal
                          ? "Diese Gruppe liegt in einer Gruppe, die nicht zur Gesamtsumme zählt – ihre Konten zählen deshalb ebenfalls nicht."
                          : "Ausgeschaltet zählen die Konten dieser Gruppe und ihrer Untergruppen nicht zu „Verfügbar“ und zum Saldoverlauf der Übersicht – z. B. für Geschäfts- oder Kinderkonten.")
+                    .leadingFooter()
                 }
                 Section {
                     ForEach(model.allAccounts) { a in
@@ -684,7 +685,7 @@ struct GroupDetailEditor: View {
                 } header: {
                     Text("Konten")
                 } footer: {
-                    Text("Ein Konto gehört zu höchstens einer Gruppe.")
+                    Text("Ein Konto gehört zu höchstens einer Gruppe.").leadingFooter()
                 }
                 #if os(iOS)
                 Section {

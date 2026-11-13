@@ -61,7 +61,7 @@ struct NewCategorySheet: View {
                     }
                 } footer: {
                     if let path = model.categoryPath(request.parent) {
-                        Text("Wird angelegt unter „\(path)“.")
+                        Text("Wird angelegt unter „\(path)“.").leadingFooter()
                     }
                 }
             }

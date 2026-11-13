@@ -1274,12 +1274,13 @@ impl Vault {
             }
         }
         crate::user_groups::assign_default_colors(&mut accounts, &color_hashes);
-        // Credit cards stored with balance 0: derive the open amount from bookings.
+        // Credit cards stored with balance 0: derive the open amount from bookings
+        // (unless a Startsaldo drives the balance; bank-synced cards ignore one).
         for a in accounts.iter_mut().filter(|a| {
             a.kind == AccountKind::CreditCard
                 && a.balance_cents == 0
                 && a.transaction_count > 0
-                && a.opening_balance_cents.is_none()
+                && !(a.balance_derived && a.opening_balance_cents.is_some())
         }) {
             let mut st = db.prepare(
                 "SELECT booking_date, amount_cents, counterparty || ' ' || purpose || ' ' || booking_text

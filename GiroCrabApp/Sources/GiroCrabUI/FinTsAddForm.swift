@@ -136,7 +136,7 @@ struct FinTsAddForm: View {
             }
         }
         .font(.caption)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .leadingFooter()
     }
 
     private var urlField: some View {

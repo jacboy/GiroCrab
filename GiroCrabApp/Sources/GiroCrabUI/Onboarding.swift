@@ -81,7 +81,10 @@ struct EmptyVaultCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Willkommen bei GiroCrab").font(.title3.weight(.semibold))
+            HStack(spacing: 12) {
+                AnimatedCrabLogoView(size: 56, phase: .idle)
+                Text("Willkommen bei GiroCrab").font(.title3.weight(.semibold))
+            }
             Text("Ihr Tresor ist eingerichtet, enthält aber noch keine Konten. So geht es weiter:")
                 .font(.callout).foregroundStyle(Theme.secondary)
             step(1, "Bank wählen und Anmeldenamen eingeben")
