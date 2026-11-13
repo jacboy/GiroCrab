@@ -72,7 +72,14 @@ struct GiroCrabMacApp: App {
 
     // The model is built here, once and outside the body's dependency tracking
     // (see GiroCrabScenes.prepare).
-    init() { GiroCrabScenes.prepare() }
+    init() {
+        // Frontmost before the first Touch ID prompt, also via `swift run`.
+        NSApplication.shared.setActivationPolicy(.regular)
+        if LaunchOptions.current.screenshotPath == nil {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+        GiroCrabScenes.prepare()
+    }
 
     var body: some Scene {
         GiroCrabScenes()

@@ -123,8 +123,7 @@ struct PrintSheet: View {
         } footer: {
             if options.showDailyBalance {
                 Text("Der Tagessaldo ist der Kontostand am Ende des Tages, unabhängig von der Auswahl.")
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .leadingFooter()
             }
         }
     }

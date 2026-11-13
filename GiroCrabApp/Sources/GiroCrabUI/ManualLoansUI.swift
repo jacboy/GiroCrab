@@ -493,8 +493,18 @@ struct FormFooter: View {
     let text: LocalizedStringKey
     init(_ text: LocalizedStringKey) { self.text = text }
     var body: some View {
-        Text(text)
-            .multilineTextAlignment(.leading)
+        Text(text).leadingFooter()
+    }
+}
+
+extension View {
+    /// Footer of a grouped `Form` section, leading-aligned like System Settings.
+    /// macOS lays a plain footer out trailing (next to the values); wrapped
+    /// lines and multi-line stacks stay left-aligned too. Use on every
+    /// `Section { } footer: { }` content.
+    func leadingFooter() -> some View {
+        multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

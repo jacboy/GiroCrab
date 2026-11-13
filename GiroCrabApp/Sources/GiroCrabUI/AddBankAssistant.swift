@@ -226,6 +226,7 @@ struct AddBankSheet: View {
                     } footer: {
                         Text("Jede Sparkasse und Volksbank ist eine eigene Bank. Suchen Sie sie über ihren Namen (meist mit Ort), die Bankleitzahl oder Ihre IBAN.")
                             .font(.caption).foregroundStyle(.secondary)
+                            .leadingFooter()
                     }
                 } else if results.isEmpty {
                     ContentUnavailableView.search(text: query)
@@ -386,7 +387,7 @@ struct AddBankSheet: View {
                     } footer: {
                         Text("GiroCrab empfiehlt FinTS: direkt zur Bank, ohne Anmeldung bei Dritten.")
                             .font(.caption).foregroundStyle(Theme.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .leadingFooter()
                     }
                 }
                 // every form brings its own sections (Zugang, Anmeldung, Erweitert …)
@@ -429,7 +430,7 @@ struct AddBankSheet: View {
                     if let help {
                         Text(help.note)
                             .font(.caption).foregroundStyle(Theme.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .leadingFooter()
                     }
                 }
             }

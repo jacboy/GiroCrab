@@ -185,6 +185,7 @@ struct RuleForm: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .leadingFooter()
                 }
                 Section("Betrag") {
                     Picker("Richtung", selection: $direction) {

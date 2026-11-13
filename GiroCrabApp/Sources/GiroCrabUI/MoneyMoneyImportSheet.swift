@@ -280,9 +280,7 @@ struct MoneyMoneyExportImportView: View {
             } footer: {
                 Text("In MoneyMoney ein einzelnes Konto wählen, alle Umsätze markieren (⌘A) und „Umsätze exportieren …“. Nur CSV enthält auch die Kategorien. Sie können die Datei auch hierher ziehen.")
                     .font(.caption).foregroundStyle(Theme.secondary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .leadingFooter()
             }
         }
         .formStyle(.grouped)
@@ -350,9 +348,7 @@ struct MoneyMoneyExportImportView: View {
     private func footerText(_ text: String) -> some View {
         Text(text)
             .font(.caption).foregroundStyle(Theme.secondary)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .leadingFooter()
     }
 
     // MARK: - Footer

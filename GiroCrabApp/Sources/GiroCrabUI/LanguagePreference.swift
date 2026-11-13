@@ -311,6 +311,7 @@ struct LanguageSettingsSection: View {
             Text("Diese Einstellung entspricht der Sprache für GiroCrab in den Systemeinstellungen unter „Allgemein › Sprache & Region › Programme“.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .leadingFooter()
         }
         // Pick up a change made in System Settings while the app is running.
         .onAppear { selection = preference.choice }

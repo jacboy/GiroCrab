@@ -17351,6 +17351,17 @@
         }
       }
     },
+    "Beleg löschen …" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Document…"
+          }
+        }
+      }
+    },
     "GiroCrab-Hilfe" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17424,6 +17435,105 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Community & Discussions (GitHub)"
+          }
+        }
+      }
+    },
+    "Auswertungen anzeigen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Analytics"
+          }
+        }
+      }
+    },
+    "Auswertungen in der Übersicht anzeigen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show analytics in the overview"
+          }
+        }
+      }
+    },
+    "Blendet Saldoverlauf, Cashflow und Budgets über der Buchungsliste aus. Auch im Menü Ansicht umschaltbar." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hides the balance history, cash flow and budgets above the booking list. Also available in the View menu."
+          }
+        }
+      }
+    },
+    "Informationen ausblenden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Inspector"
+          }
+        }
+      }
+    },
+    "Informationen einblenden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Inspector"
+          }
+        }
+      }
+    },
+    "Informationen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inspector"
+          }
+        }
+      }
+    },
+    "Informationen ausblenden (⌥⌘I)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Inspector (⌥⌘I)"
+          }
+        }
+      }
+    },
+    "Informationen einblenden (⌥⌘I)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Inspector (⌥⌘I)"
+          }
+        }
+      }
+    },
+    "Beim Entsperren %@ verlangen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Require %@ on Unlock"
           }
         }
       }

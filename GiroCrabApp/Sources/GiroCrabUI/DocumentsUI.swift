@@ -129,7 +129,7 @@ struct DocumentsCard: View {
                     Menu {
                         Button("In PostBox verschieben (Verknüpfung lösen)") { model.linkDocument(d, to: nil) }
                         Divider()
-                        Button("Löschen …", role: .destructive) { docToDelete = d }
+                        Button("Beleg löschen …", role: .destructive) { docToDelete = d }
                     } label: { Label("Aktionen", systemImage: "ellipsis.circle").labelStyle(.iconOnly) }
                         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help("Aktionen")
@@ -247,7 +247,7 @@ struct DocumentsView: View {
                             Button("QuickLook") { model.quickLook(d) }
                             Button("Verknüpfung lösen") { model.linkDocument(d, to: nil) }
                             Divider()
-                            Button("Löschen …", role: .destructive) { docToDelete = d }
+                            Button("Beleg löschen …", role: .destructive) { docToDelete = d }
                         }
                     }
                 }

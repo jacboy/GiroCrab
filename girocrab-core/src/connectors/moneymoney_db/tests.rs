@@ -821,6 +821,34 @@ fn imported_accounts_are_linked_to_their_bank_login() {
 }
 
 #[test]
+fn opening_balance_applies_to_accounts_linked_to_a_bank_login() {
+    // #212: the import shows the accounts under their bank login right away;
+    // until a sync takes one over, its balance is still computed here.
+    let v = vault();
+    let path = fake_db();
+    let p = v
+        .preview_moneymoney_database(path.clone(), PW.into(), None)
+        .unwrap();
+    v.import_moneymoney_database(path, PW.into(), options_from(&p, true, false))
+        .unwrap();
+    let giro = account_by_name(&v, "Girokonto");
+    assert!(giro.connection_id.is_some());
+    assert!(giro.balance_derived);
+    assert_eq!(giro.opening_balance_cents, Some(10_000));
+    v.calibrate_account_opening_balance(giro.id, 0).unwrap();
+    assert_eq!(account_by_name(&v, "Girokonto").balance_cents, 0);
+    // taken over by a sync: the bank's balance counts, not the Startsaldo
+    v.db()
+        .unwrap()
+        .execute(
+            "UPDATE accounts SET external_ref = 'bank:1' WHERE id = ?1",
+            [giro.id],
+        )
+        .unwrap();
+    assert!(!account_by_name(&v, "Girokonto").balance_derived);
+}
+
+#[test]
 fn accounts_stay_unlinked_without_bank_logins() {
     let v = vault();
     let path = fake_db();

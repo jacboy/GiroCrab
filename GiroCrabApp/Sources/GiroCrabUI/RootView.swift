@@ -8,6 +8,8 @@ public struct GiroCrabScenes: Scene {
     @State private var model: AppModel
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(ViewLayout.inspectorKey) private var showInspector = true
+    @AppStorage(ViewLayout.statisticsKey) private var showStatistics = true
     #endif
 
     public init(options: LaunchOptions = .current) {
@@ -175,6 +177,12 @@ public struct GiroCrabScenes: Scene {
             SidebarCommands()
             ToolbarCommands()
             CommandGroup(after: .sidebar) {
+                Button(showInspector ? "Informationen ausblenden" : "Informationen einblenden") { showInspector.toggle() }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                    .disabled(model.vault == nil)
+                Toggle("Auswertungen anzeigen", isOn: $showStatistics)
+                    .disabled(model.vault == nil)
+                Divider()
                 Button("Befehlspalette …") { model.showCommandPalette = true }
                     .keyboardShortcut("k", modifiers: .command)
                     .disabled(model.vault == nil)
@@ -361,43 +369,72 @@ struct MainSplitView: View {
     @Environment(AppModel.self) private var model
     #if os(macOS)
     @State private var columns: NavigationSplitViewVisibility = .all
+    @AppStorage(ViewLayout.inspectorKey) private var showInspector = true
     @Environment(\.openSettings) private var openSettings
     #else
     @State private var columns: NavigationSplitViewVisibility = .automatic
     #endif
 
-    var body: some View {
-        @Bindable var model = model
-        NavigationSplitView(columnVisibility: $columns) {
-            SidebarView()
-                .frame(minHeight: 0, maxHeight: .infinity)
-                .macColumnWidth(min: 240, ideal: 260, max: 480)
-        } content: {
-            Group {
-                if model.sidebarSelection == .documents {
-                    DocumentsView()
-                } else {
-                    BookingStreamView()
-                }
-            }
-            #if os(macOS)
-            // The customizable toolbar belongs to the column, not to the view in
-            // it: its items must stay when Belege replaces the booking list
-            // (AppKit crashes on customizable items that come and go).
-            .modifier(MainToolbar())
-            // Window title for both views here too, so the toolbar keeps the same
-            // compact style (and height) when switching to Belege.
-            .modifier(WindowTitle(title: model.title))
-            #endif
+    private var sidebar: some View {
+        SidebarView()
             .frame(minHeight: 0, maxHeight: .infinity)
-            // min widths still sum to 1080 pt (240 + 560 + 280) so the minimum window size stays as before
-            .macColumnWidth(min: 560, ideal: 700)
+            .macColumnWidth(min: 240, ideal: 260, max: 480)
+    }
+
+    private var bookingColumn: some View {
+        Group {
+            if model.sidebarSelection == .documents {
+                DocumentsView()
+            } else {
+                BookingStreamView()
+            }
+        }
+        #if os(macOS)
+        // The customizable toolbar belongs to the column, not to the view in
+        // it: its items must stay when Belege replaces the booking list
+        // (AppKit crashes on customizable items that come and go).
+        .modifier(MainToolbar())
+        // Window title for both views here too, so the toolbar keeps the same
+        // compact style (and height) when switching to Belege.
+        .modifier(WindowTitle(title: model.title))
+        #endif
+        .frame(minHeight: 0, maxHeight: .infinity)
+    }
+
+    #if os(macOS)
+    /// macOS: the detail column is a system inspector (HIG "Inspectors"), toggled
+    /// from the toolbar and View menu; the state is remembered (GitHub #234).
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+        } detail: {
+            // min widths: 240 (sidebar) + 560 + 280 (inspector) keep the minimum window size
+            bookingColumn
+                .macColumnWidth(min: 560, ideal: 700)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .inspector(isPresented: $showInspector) {
+            InspectorView()
+                .inspectorColumnWidth(min: 280, ideal: 320, max: 380)
+        }
+    }
+    #else
+    private var splitView: some View {
+        NavigationSplitView(columnVisibility: $columns) {
+            sidebar
+        } content: {
+            bookingColumn
         } detail: {
             InspectorView()
                 .frame(minHeight: 0, maxHeight: .infinity)
-                .macColumnWidth(min: 280, ideal: 320, max: 380)
         }
         .navigationSplitViewStyle(.balanced)
+    }
+    #endif
+
+    var body: some View {
+        @Bindable var model = model
+        splitView
         .quickLookPreview($model.quickLookURL)
         .accountGroupDialogs($model.groupDialog)
         .newCategoryDialog()

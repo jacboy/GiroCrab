@@ -959,7 +959,8 @@ public final class AppModel {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("GiroCrab", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("tresor.girocrab")
+        // Keychain bypass (dev): separate file, so the real vault is never opened with the throw-away key.
+        return base.appendingPathComponent(VaultKeyManager.keychainBypassed ? "tresor-dev.girocrab" : "tresor.girocrab")
     }
 
     func unlock() {
@@ -2486,6 +2487,10 @@ public final class AppModel {
 
     /// Select the booking and put the cursor into its note field in the inspector.
     func editNote(for booking: Booking) {
+        #if os(macOS)
+        // the note lives in the inspector: show it if it was hidden (the field claims the focus when it appears)
+        UserDefaults.standard.set(true, forKey: ViewLayout.inspectorKey)
+        #endif
         selectedBookingID = booking.id
         pendingNoteFocus = booking.id
     }
