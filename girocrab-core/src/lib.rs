@@ -40,6 +40,7 @@ pub mod merchants;
 pub mod models;
 pub mod money;
 pub mod opening_balance;
+pub mod planned;
 pub mod planning;
 pub mod recurring;
 pub mod report_sanitizer;

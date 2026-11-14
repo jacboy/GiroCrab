@@ -41,12 +41,13 @@ const STEPS: &[Step] = &[
     Step::Sql(""),
     Step::Sql(""),
     Step::Sql(""),
-    Step::Hook(repair_to_v8),          // 9
-    Step::Hook(opening_balances),      // 10
-    Step::Sql(SYNC_LOG),               // 11
-    Step::Hook(sepa_refs),             // 12
-    Step::Hook(tangible_assets),       // 13
-    Step::Hook(security_transactions), // 14
+    Step::Hook(repair_to_v8),                      // 9
+    Step::Hook(opening_balances),                  // 10
+    Step::Sql(SYNC_LOG),                           // 11
+    Step::Hook(sepa_refs),                         // 12
+    Step::Hook(tangible_assets),                   // 13
+    Step::Hook(security_transactions),             // 14
+    Step::Hook(crate::planned::planned_transfers), // 15
 ];
 
 /// Step 14 (#314): securities transactions (buy, sell, dividend, fee, tax …)
@@ -558,7 +559,7 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 14);
+        assert_eq!(SCHEMA_VERSION, 15);
     }
 
     #[test]

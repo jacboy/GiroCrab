@@ -1547,6 +1547,28 @@
         }
       }
     },
+    "3 Monate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3 months"
+          }
+        }
+      }
+    },
+    "30 Tage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 days"
+          }
+        }
+      }
+    },
     "8 Ziffern oder IBAN" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1642,6 +1664,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cancelled"
+          }
+        }
+      }
+    },
+    "Abgehend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outgoing"
           }
         }
       }
@@ -2170,6 +2203,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "All · Everyday · Savings Plans"
+          }
+        }
+      }
+    },
+    "Alles" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All"
           }
         }
       }
@@ -5563,6 +5607,17 @@
         }
       }
     },
+    "Der API-Schlüssel wird nicht gespeichert." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The API key is not stored."
+          }
+        }
+      }
+    },
     "Der Auftrag hat die Bank erreicht, aber die Antwort ist nicht eindeutig. Die Überweisung wurde möglicherweise bereits ausgeführt.\n\nBitte prüfen Sie zuerst Ihr Konto (Umsätze oder Online-Banking), bevor Sie sie erneut senden. In GiroCrab ist sie als „Status unklar“ vorgemerkt.\n\nReferenz (EndToEnd-ID): %@\nBank: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5939,6 +5994,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The accounts appear under their bank login. The first fetch takes them over without creating duplicates."
+          }
+        }
+      }
+    },
+    "Die PIN wird nicht gespeichert." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The PIN is not stored."
           }
         }
       }
@@ -6884,6 +6950,17 @@
         }
       }
     },
+    "Einfügen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste"
+          }
+        }
+      }
+    },
     "Eingegeben" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6891,6 +6968,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Entered"
+          }
+        }
+      }
+    },
+    "Eingehend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Incoming"
           }
         }
       }
@@ -8453,6 +8541,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Occasional news, independent of updates. For this, GiroCrab downloads a signed text file from GitHub – without an identifier and without tracking. Announcements never appear as a pop-up window and can be dismissed at any time. Security warnings are independent of this."
+          }
+        }
+      }
+    },
+    "Geplant" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Planned"
           }
         }
       }
@@ -11027,6 +11126,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No Preview"
+          }
+        }
+      }
+    },
+    "Keine geplanten Zahlungen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No planned payments"
           }
         }
       }
@@ -14076,6 +14186,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Still to do: consent through Enable Banking"
+          }
+        }
+      }
+    },
+    "Normale Überweisung" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard transfer"
           }
         }
       }
@@ -17558,6 +17679,17 @@
         }
       }
     },
+    "Terminüberweisungen, die du in GiroCrab beauftragst, erscheinen hier bis zur Ausführung." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scheduled transfers you order in GiroCrab appear here until they are executed."
+          }
+        }
+      }
+    },
     "Test- & Demo-Zugang (ohne echtes Bankkonto): Kennung demo · PIN 12345" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19346,6 +19478,28 @@
         }
       }
     },
+    "Zahlung" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Payment"
+          }
+        }
+      }
+    },
+    "Zahlungen, die bei der Bank bereits beauftragt, aber noch nicht gebucht sind." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Payments already ordered at the bank but not booked yet."
+          }
+        }
+      }
+    },
     "Zahlungsdienst" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20146,6 +20300,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "will not be created"
+          }
+        }
+      }
+    },
+    "wird nicht gespeichert" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "not stored"
           }
         }
       }

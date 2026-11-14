@@ -144,6 +144,7 @@ extension AppModel {
             }
             schedulePoll(connection: connection, interval: c.pollIntervalSeconds)
         case .finished(let outcome):
+            plannedVersion += 1 // a scheduled transfer now shows under „Geplant“
             pollTask?.cancel()
             activeChallenge = nil
             activeTransfer = nil

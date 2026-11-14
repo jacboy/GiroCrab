@@ -461,6 +461,8 @@ struct MainSplitView: View {
         Group {
             if model.sidebarSelection == .documents {
                 DocumentsView()
+            } else if model.sidebarSelection == .planned {
+                PlannedPaymentsView()
             } else {
                 BookingStreamView()
             }

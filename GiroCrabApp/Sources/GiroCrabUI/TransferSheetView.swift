@@ -59,25 +59,32 @@ struct TransferSheetView: View {
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Image(systemName: "paperplane.circle.fill").appFont(.title).foregroundStyle(Theme.accent)
-                Text(confirming ? (canSend ? "Überweisung prüfen" : "GiroCode scannen") : "Neue Überweisung").appFont(.title2, weight: .bold)
-                Spacer()
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if confirming {
+                confirmation
+            } else {
+                form(draft: $model.transferDraft)
             }
-            if confirming { confirmation } else { form(draft: $model.transferDraft) }
-            if let e = model.transferError {
-                Label(e, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red).appFont(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
+            if model.transferError != nil || model.transferInstantDeclined != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let e = model.transferError {
+                        Label(e, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red).appFont(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let reason = model.transferInstantDeclined {
+                        instantDeclined(reason)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.bottom, 12)
             }
-            if let reason = model.transferInstantDeclined {
-                instantDeclined(reason)
-            }
-            buttons
+            Divider()
+            buttons.padding(14)
         }
-        .padding(24)
-        .macFrame(width: 520)
+        .macFrame(width: 560, height: 700)
         .task { if model.options.demoSheet == "transfer-confirm" { confirming = true } } // screenshots
         .overlay {
             if dropTargeted {
@@ -112,171 +119,195 @@ struct TransferSheetView: View {
         }
     }
 
+    private var title: LocalizedStringKey {
+        confirming ? (canSend ? "Überweisung prüfen" : "GiroCode scannen") : "Neue Überweisung"
+    }
+
+    /// Title left, the two helpers (templates, paste) as small actions right.
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text(title).appFont(.title2, weight: .semibold)
+            Spacer()
+            if !confirming {
+                TransferTemplatesMenu()
+                Button { pasteFromClipboard() } label: { Label("Einfügen", systemImage: "doc.on.clipboard") }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .help("Erkennt IBAN, Betrag, Empfänger und Zweck (⇧⌘V; ⌘V außerhalb von Textfeldern). Rechnung (PDF, ZUGFeRD, GiroCode) hierher ziehen.")
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 14)
+    }
+
     // MARK: form
 
     private func form(draft: Binding<TransferDraft>) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Button { pasteFromClipboard() } label: { Label("Aus Zwischenablage einfügen", systemImage: "doc.on.clipboard") }
-                    .keyboardShortcut("v", modifiers: [.command, .shift])
-                    .help("Erkennt IBAN, Betrag, Empfänger und Zweck (⇧⌘V; ⌘V außerhalb von Textfeldern). Rechnung (PDF, ZUGFeRD, GiroCode) hierher ziehen.")
-                Text(importNote ?? String(localized: "Oder Rechnung hierher ziehen"))
-                    .appFont(.caption).foregroundStyle(Theme.tertiary).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            HStack { Spacer(); TransferTemplatesMenu() }
-            field("Von Konto") {
+        Form {
+            Section {
                 Picker("Von Konto", selection: draft.accountID) {
                     ForEach(model.transferFormAccounts) { a in
                         Text("\(a.name) · \(formatIBAN(a.iban))").tag(Optional(a.id))
                     }
                 }
-                .labelsHidden()
+            } footer: {
+                if account != nil && !canSend { noDirectTransferNote }
             }
-            if account != nil && !canSend {
-                if model.bankingGate(forAccount: account?.id) != nil {
-                    // Security lock: no direct transfer, the GiroCode needs no bank contact.
-                    Label("Die Sicherheitssperre verhindert direkte Überweisungen von diesem Konto. Am Ende erhalten Sie einen GiroCode zum Scannen in der App Ihrer Bank.", systemImage: "exclamationmark.shield")
-                        .appFont(.caption).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 152)
-                } else if account?.connector == .comdirect {
-                    // The comdirect REST API has no payment endpoint; FinTS has.
-                    Label("Die comdirect-Schnittstelle (REST) kann keine Überweisungen ausführen. Verbinden Sie das Konto zusätzlich per FinTS, um direkt zu überweisen. Sonst erhalten Sie am Ende einen GiroCode zum Scannen in der comdirect-App.", systemImage: "qrcode")
-                        .appFont(.caption).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 152)
-                } else {
-                    Label("Von diesem Konto kann GiroCrab nicht direkt überweisen. Am Ende erhalten Sie einen GiroCode zum Scannen in der App Ihrer Bank.", systemImage: "qrcode")
-                        .appFont(.caption).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 152)
-                }
-            }
-            field("Empfänger") {
-                VStack(alignment: .leading, spacing: 6) {
-                    TextField("Name des Empfängers", text: draft.name)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($nameFocused)
-                    if !suggestions.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(suggestions, id: \.iban) { r in
-                                    Button {
-                                        model.transferDraft.name = r.name
-                                        model.transferDraft.iban = r.iban
-                                        suggestions = []
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 0) {
-                                            Text(r.name).appFont(.callout).lineLimit(1)
-                                            Text(formatIBAN(r.iban)).appFont(.caption2, design: .monospaced).foregroundStyle(Theme.secondary)
-                                        }
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.selection))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+
+            Section {
+                TextField("Name", text: draft.name, prompt: Text("Name des Empfängers"))
+                    .multilineTextAlignment(.trailing)
+                    .focused($nameFocused)
+                if !suggestions.isEmpty { suggestionRow }
+                LabeledContent("IBAN") {
+                    HStack(spacing: 8) {
+                        TextField("IBAN", text: draft.iban, prompt: Text("DE00 0000 0000 0000 0000 00"))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .appFont(.body, design: .monospaced)
+                            .autocorrectionDisabled()
+                        if !draft.wrappedValue.iban.isEmpty {
+                            Image(systemName: ibanValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(ibanValid ? Color.green : Color.red)
+                                .help(ibanValid ? "Prüfsumme korrekt" : "IBAN ungültig (Prüfsumme/Länge)")
                         }
                     }
                 }
-            }
-            field("IBAN") {
-                HStack(spacing: 8) {
-                    TextField("DE00 0000 0000 0000 0000 00", text: draft.iban)
-                        .textFieldStyle(.roundedBorder)
-                        .appFont(.body, design: .monospaced)
-                        .autocorrectionDisabled()
-                    if !draft.wrappedValue.iban.isEmpty {
-                        Image(systemName: ibanValid ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(ibanValid ? Color.green : Color.red)
-                            .help(ibanValid ? "Prüfsumme korrekt" : "IBAN ungültig (Prüfsumme/Länge)")
+                LabeledContent("BIC (optional)") {
+                    HStack(spacing: 8) {
+                        TextField("BIC", text: draft.bic, prompt: Text("z. B. GENODEF1KS2"))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .appFont(.body, design: .monospaced)
+                            .autocorrectionDisabled()
+                        if !bicText.isEmpty {
+                            Image(systemName: bicValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(bicValid ? Color.green : Color.red)
+                        }
                     }
                 }
+            } header: {
+                Text("Empfänger").appSectionHeader()
+            } footer: {
+                Text(importNote ?? String(localized: "Oder Rechnung hierher ziehen"))
             }
-            field("BIC (optional)") {
-                HStack(spacing: 8) {
-                    TextField("z. B. GENODEF1KS2", text: draft.bic)
-                        .textFieldStyle(.roundedBorder)
-                        .appFont(.body, design: .monospaced)
-                        .autocorrectionDisabled()
-                    if !bicText.isEmpty {
-                        Image(systemName: bicValid ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(bicValid ? Color.green : Color.red)
+
+            Section {
+                LabeledContent("Betrag") {
+                    HStack(spacing: 6) {
+                        TextField("Betrag", text: draft.amountText, prompt: Text(Money.plain(0)))
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .appFont(.body, monospacedDigit: true)
+                        Text("€").foregroundStyle(Theme.secondary)
                     }
                 }
-            }
-            field("Betrag") {
-                HStack(spacing: 6) {
-                    TextField(Money.plain(0), text: draft.amountText)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .appFont(.body, monospacedDigit: true)
-                        .frame(maxWidth: 160)
-                    Text("€").foregroundStyle(Theme.secondary)
+                TextField("Verwendungszweck", text: draft.purpose, prompt: Text("Verwendungszweck"), axis: .vertical)
+                    .lineLimit(1...3)
+            } header: {
+                Text("Zahlung").appSectionHeader()
+            } footer: {
+                HStack {
                     if !draft.wrappedValue.amountText.isEmpty && cents == nil {
-                        Text("Betrag > 0 eingeben").appFont(.caption).foregroundStyle(.red)
+                        Text("Betrag > 0 eingeben").foregroundStyle(.red)
                     }
-                }
-            }
-            field("Verwendungszweck") {
-                VStack(alignment: .trailing, spacing: 2) {
-                    TextField("Verwendungszweck", text: draft.purpose, axis: .vertical)
-                        .lineLimit(2...3)
-                        .textFieldStyle(.roundedBorder)
+                    Spacer()
                     Text("\(draft.wrappedValue.purpose.count)/\(maxPurpose)")
-                        .appFont(.caption, monospacedDigit: true)
+                        .monospacedDigit()
                         .foregroundStyle(draft.wrappedValue.purpose.count >= maxPurpose ? Color.red : Theme.tertiary)
                 }
             }
+
             if canSend && account?.connector?.offersInstantChoice == true {
-                field("Ausführung") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Toggle("Echtzeitüberweisung (SEPA Instant)", isOn: draft.instant)
-                        #if os(macOS)
-                            .toggleStyle(.checkbox)
-                        #endif
-                            .onChange(of: draft.wrappedValue.instant) { _, on in
-                                if on { model.transferDraft.scheduled = false }
-                            }
-                        Text("Kommt in Sekunden an und ist nicht rückholbar. Bietet die Bank sie nicht an, wird nichts gesendet; Sie können sie dann als normale Überweisung senden.")
-                            .appFont(.caption).foregroundStyle(Theme.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if draft.wrappedValue.instant, let c = cents, c >= 10_000_000 {
-                            Label("Viele Banken begrenzen Echtzeitüberweisungen (oft auf 100.000 € oder ein eigenes Limit). Die Bank kann den Auftrag dann ablehnen.", systemImage: "exclamationmark.triangle")
-                                .appFont(.caption).foregroundStyle(.orange)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Toggle("Terminüberweisung", isOn: draft.scheduled)
-                        #if os(macOS)
-                            .toggleStyle(.checkbox)
-                        #endif
-                            .disabled(draft.wrappedValue.instant)
-                        if draft.wrappedValue.scheduled && !draft.wrappedValue.instant {
-                            DatePicker("Ausführungsdatum", selection: draft.executionDate,
-                                       in: (Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())...,
-                                       displayedComponents: .date)
-                        }
+                Section {
+                    // Mutually exclusive choices: one radio group (HIG), not
+                    // two checkboxes where one disables the other.
+                    Picker("Art", selection: executionMode(draft)) {
+                        Text("Normale Überweisung").tag(ExecutionMode.regular)
+                        Text("Terminüberweisung").tag(ExecutionMode.scheduled)
+                        Text("Echtzeitüberweisung (SEPA Instant)").tag(ExecutionMode.instant)
                     }
+                    #if os(macOS)
+                    .pickerStyle(.radioGroup)
+                    #else
+                    .pickerStyle(.menu)
+                    #endif
+                    .labelsHidden()
+                    if draft.wrappedValue.executionMode == .scheduled {
+                        DatePicker("Ausführungsdatum", selection: draft.executionDate,
+                                   in: (Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())...,
+                                   displayedComponents: .date)
+                    }
+                } header: {
+                    Text("Ausführung").appSectionHeader()
+                } footer: {
+                    if draft.wrappedValue.executionMode == .instant { instantNote }
                 }
             }
+
             if canSend && (model.isDemo || isMagicDemoAccount) {
-                DemoHintBanner(style: .pinAndTan, buttonTitle: "PIN 12345 einfügen") { draft.pin.wrappedValue = "12345" }
+                Section {
+                    DemoHintBanner(style: .pinAndTan, buttonTitle: "PIN 12345 einfügen") { draft.pin.wrappedValue = "12345" }
+                }
             }
             if canSend && !pinStored {
-                field(isBunq ? "bunq-API-Schlüssel" : "Banking-PIN") {
-                    SecureField(isBunq ? "API-Schlüssel (wird nicht gespeichert)" : "PIN (wird nicht gespeichert)", text: draft.pin)
-                        .textFieldStyle(.roundedBorder)
+                Section {
+                    SecureField(isBunq ? "bunq-API-Schlüssel" : "Banking-PIN", text: draft.pin,
+                                prompt: Text(isBunq ? "wird nicht gespeichert" : "wird nicht gespeichert"))
+                        .multilineTextAlignment(.trailing)
+                } footer: {
+                    Text(isBunq ? "Der API-Schlüssel wird nicht gespeichert." : "Die PIN wird nicht gespeichert.")
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var suggestionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(suggestions, id: \.iban) { r in
+                    Button {
+                        model.transferDraft.name = r.name
+                        model.transferDraft.iban = r.iban
+                        suggestions = []
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(r.name).appFont(.callout).lineLimit(1)
+                            Text(formatIBAN(r.iban)).appFont(.caption2, design: .monospaced).foregroundStyle(Theme.secondary)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.selection))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
     }
 
-    private func field<C: View>(_ label: LocalizedStringKey, @ViewBuilder content: () -> C) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label).foregroundStyle(Theme.secondary).frame(width: 140 * textScale, alignment: .trailing)
-            content().frame(maxWidth: .infinity, alignment: .leading)
+    /// Why this account ends in a GiroCode instead of a direct transfer.
+    @ViewBuilder private var noDirectTransferNote: some View {
+        if model.bankingGate(forAccount: account?.id) != nil {
+            // Security lock: no direct transfer, the GiroCode needs no bank contact.
+            Label("Die Sicherheitssperre verhindert direkte Überweisungen von diesem Konto. Am Ende erhalten Sie einen GiroCode zum Scannen in der App Ihrer Bank.", systemImage: "exclamationmark.shield")
+        } else if account?.connector == .comdirect {
+            // The comdirect REST API has no payment endpoint; FinTS has.
+            Label("Die comdirect-Schnittstelle (REST) kann keine Überweisungen ausführen. Verbinden Sie das Konto zusätzlich per FinTS, um direkt zu überweisen. Sonst erhalten Sie am Ende einen GiroCode zum Scannen in der comdirect-App.", systemImage: "qrcode")
+        } else {
+            Label("Von diesem Konto kann GiroCrab nicht direkt überweisen. Am Ende erhalten Sie einen GiroCode zum Scannen in der App Ihrer Bank.", systemImage: "qrcode")
         }
+    }
+
+    @ViewBuilder private var instantNote: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Kommt in Sekunden an und ist nicht rückholbar. Bietet die Bank sie nicht an, wird nichts gesendet; Sie können sie dann als normale Überweisung senden.")
+            if let c = cents, c >= 10_000_000 {
+                Label("Viele Banken begrenzen Echtzeitüberweisungen (oft auf 100.000 € oder ein eigenes Limit). Die Bank kann den Auftrag dann ablehnen.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func executionMode(_ draft: Binding<TransferDraft>) -> Binding<ExecutionMode> {
+        Binding(get: { draft.wrappedValue.executionMode }, set: { draft.wrappedValue.executionMode = $0 })
     }
 
     // MARK: confirmation
@@ -321,30 +352,46 @@ struct TransferSheetView: View {
         }
     }
 
+    /// Read-only review in the same grouped style as the form: the amount first,
+    /// then recipient, payment and execution, each as label + value.
     private var sendConfirmation: some View {
         let d = model.transferDraft
-        return VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 10) {
+        return Form {
+            Section {
                 Text(Money.format(-(cents ?? 0)).replacingOccurrences(of: "-", with: ""))
                     .appFont(.largeTitle, weight: .semibold, monospacedDigit: true)
-                summaryRow("An", d.name)
-                summaryRow("IBAN", d.iban)
-                if !bicText.isEmpty { summaryRow("BIC", bicText.uppercased()) }
-                summaryRow("Zweck", d.purpose.isEmpty ? "–" : d.purpose)
-                Divider()
-                summaryRow("Von", account.map { "\($0.name) · \(formatIBAN($0.iban))" } ?? "–")
-                summaryRow("Ausführung", sendsInstant
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 6)
+            }
+            Section {
+                reviewRow("Name", d.name)
+                reviewRow("IBAN", d.iban, monospaced: true)
+                if !bicText.isEmpty { reviewRow("BIC", bicText.uppercased(), monospaced: true) }
+            } header: {
+                Text("Empfänger").appSectionHeader()
+            }
+            Section {
+                reviewRow("Verwendungszweck", d.purpose.isEmpty ? "–" : d.purpose)
+                reviewRow("Von Konto", account.map { "\($0.name) · \(formatIBAN($0.iban))" } ?? "–")
+                reviewRow("Ausführung", sendsInstant
                     ? String(localized: "Sofort (Echtzeitüberweisung)")
                     : d.executionDateISO.map { String(format: String(localized: "Am %@ (Terminüberweisung)"), $0) }
                         ?? String(localized: "Heute (SEPA-Überweisung)"))
+            } header: {
+                Text("Zahlung").appSectionHeader()
+            } footer: {
+                Label("Bitte Empfänger und IBAN genau prüfen. Eine freigegebene Überweisung lässt sich meist nicht mehr zurückholen.", systemImage: "exclamationmark.shield")
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border))
-            Label("Bitte Empfänger und IBAN genau prüfen. Eine freigegebene Überweisung lässt sich meist nicht mehr zurückholen.", systemImage: "exclamationmark.shield")
-                .appFont(.callout).foregroundStyle(Theme.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        }
+        .formStyle(.grouped)
+    }
+
+    private func reviewRow(_ label: LocalizedStringKey, _ value: String, monospaced: Bool = false) -> some View {
+        LabeledContent(label) {
+            Text(value)
+                .appFont(.body, design: monospaced ? .monospaced : .default)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
         }
     }
 

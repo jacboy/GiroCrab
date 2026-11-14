@@ -17,6 +17,8 @@ enum SidebarItem: Hashable {
     case documents
     /// „Neue Umsätze“ (GitHub #352): unreviewed bookings of all accounts.
     case newBookings
+    /// „Geplant“ (GitHub #240): future payments with an order at the bank.
+    case planned
 }
 
 /// Period of the booking list and its sums. The menu follows MoneyMoney
@@ -244,6 +246,14 @@ struct TransferDraft {
     var scheduled = false
     var executionDate = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
 
+    var executionMode: ExecutionMode {
+        get { instant ? .instant : (scheduled ? .scheduled : .regular) }
+        set {
+            instant = newValue == .instant
+            scheduled = newValue == .scheduled
+        }
+    }
+
     /// `YYYY-MM-DD` for the core, or nil when not scheduled.
     var executionDateISO: String? {
         guard scheduled && !instant else { return nil }
@@ -253,6 +263,11 @@ struct TransferDraft {
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: executionDate)
     }
+}
+
+/// How a transfer is executed; exactly one applies.
+enum ExecutionMode: Hashable {
+    case regular, scheduled, instant
 }
 
 /// A transfer whose result is unclear: it may have been executed.

@@ -220,6 +220,13 @@ public final class AppModel {
     var newCategoryRequest: NewCategoryRequest?
     /// "Belege & PostBox" filtered to one account (#172); nil = all accounts.
     var documentsAccountFilter: Int64?
+    /// „Geplant“ (#240): payments with a bank order, the filters and a reload
+    /// marker (set by everything that can change them: transfers, syncs).
+    var plannedPayments: [PlannedPayment] = []
+    var plannedTotals = PlannedTotals(count: 0, outgoingCents: 0, incomingCents: 0)
+    var plannedAccountFilter: Int64?
+    var plannedHorizon: PlannedHorizon = .days90
+    var plannedVersion = 0
     var expandedCategories: Set<Int64> = []
     var showRuleEditor = false {
         didSet { if showRuleEditor, rulesStale { reloadRules() } }
@@ -458,6 +465,7 @@ public final class AppModel {
             case "alltag": scope = .everyday
             case "sparplaene", "sparpläne", "investments": scope = .investments
             case "belege", "documents": sidebarSelection = .documents
+            case "geplant", "planned": sidebarSelection = .planned
             default: break
             }
             if let q = options.selectAccount, let a = allAccounts.first(where: { $0.name.lowercased().contains(q) }) {

@@ -47,6 +47,13 @@ struct SidebarView: View {
                 Button("Alle als gelesen markieren", systemImage: "checkmark.circle") { model.markAllChecked(accountIDs: model.allAccounts.map(\.id)) }
                     .disabled(model.newCount == 0)
             }
+            // „Geplant“ (#240): ordered at the bank, not booked yet
+            HStack(spacing: 8) {
+                Image(systemName: "calendar.badge.clock").foregroundStyle(Theme.secondary).frame(width: 20)
+                Text("Geplant").fontWeight(.medium).appDefaultFont()
+                Spacer()
+            }
+            .tag(SidebarItem.planned)
             HStack(spacing: 8) {
                 Image(systemName: "doc.on.doc").foregroundStyle(Theme.secondary).frame(width: 20)
                 Text("Belege & PostBox").fontWeight(.medium).appDefaultFont()

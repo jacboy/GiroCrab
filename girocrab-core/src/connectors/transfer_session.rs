@@ -107,15 +107,21 @@ impl TransferSession {
                     return match st.connector.transfer_result() {
                         TransferResult::Executed { instant } => {
                             st.executed = true;
-                            self.vault.record_pending_transfer(
-                                st.account_id,
-                                &st.job,
-                                if instant {
-                                    "Echtzeitüberweisung (vorgemerkt)"
-                                } else {
-                                    "Überweisung (vorgemerkt)"
-                                },
-                            )?;
+                            if st.job.execution_date.is_some() {
+                                // scheduled: shown under "Geplant" until the
+                                // bank books it, not as a booking dated today
+                                self.vault.record_planned_transfer(st.account_id, &st.job)?;
+                            } else {
+                                self.vault.record_pending_transfer(
+                                    st.account_id,
+                                    &st.job,
+                                    if instant {
+                                        "Echtzeitüberweisung (vorgemerkt)"
+                                    } else {
+                                        "Überweisung (vorgemerkt)"
+                                    },
+                                )?;
+                            }
                             Ok(TransferStep::Finished {
                                 outcome: TransferOutcome {
                                     instant,

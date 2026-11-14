@@ -6,7 +6,7 @@ import Foundation
 ///  GIROCRAB_DEMO_SEED=1   same, via environment (works for Xcode schemes / iOS)
 ///  --demo-sync            (with demo data) start "Sync All" right away, to
 ///                         see the push-TAN / code / redirect 2FA sheets
-///  --view alltag|sparplaene|belege  start in "Alltag & Konsum" / "Sparpläne & Perks" / "Belege & PostBox"
+///  --view alltag|sparplaene|belege|geplant  start in "Alltag & Konsum" / "Sparpläne & Perks" / "Belege & PostBox"
 ///  --fresh-vault          (developer) empty personal vault in a temp folder,
 ///                         fixed key, no Keychain – to try onboarding/setup
 ///  --keep-fresh-vault     (developer) like --fresh-vault, but reopen the temp vault
