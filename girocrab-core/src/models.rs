@@ -803,6 +803,32 @@ pub struct SepaTransferRequest {
     pub execution_date: Option<String>,
 }
 
+/// One payment of a batch transfer.
+#[derive(Debug, Clone, uniffi::Record)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BatchPaymentInput {
+    pub name: String,
+    pub iban: String,
+    pub bic: Option<String>,
+    /// Must be > 0.
+    pub amount_cents: i64,
+    /// Verwendungszweck, max. 140 characters.
+    pub purpose: String,
+}
+
+/// Batch transfer (Sammelüberweisung, HKCCM): one debit account, many payments.
+#[derive(Debug, Clone, uniffi::Record)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BatchTransferRequest {
+    pub account_id: i64,
+    pub payments: Vec<BatchPaymentInput>,
+    /// true = one booking for the sum, false = one booking per payment (if the
+    /// bank allows it).
+    pub batch_booking: bool,
+    /// Optional future execution date `YYYY-MM-DD`.
+    pub execution_date: Option<String>,
+}
+
 /// Recipient suggested from past bookings (auto-completion).
 #[derive(Debug, Clone, uniffi::Record)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

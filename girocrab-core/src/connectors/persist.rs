@@ -8,7 +8,9 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::error::{CoreError, CoreResult};
 use crate::i18n::{tr, trf};
-use crate::models::{AccountKind, ConnectorKind, KnownRecipient, SepaTransferRequest};
+use crate::models::{
+    AccountKind, BatchTransferRequest, ConnectorKind, KnownRecipient, SepaTransferRequest,
+};
 use crate::secret::SecretString;
 use crate::vault::Vault;
 
@@ -1046,50 +1048,8 @@ impl Vault {
                 message: tr("Der Verwendungszweck darf höchstens 140 Zeichen lang sein.").into(),
             });
         }
-        let (connection_id, iban, owner) = {
-            let db = self.db()?;
-            let row: (Option<i64>, String, String) = db
-                .query_row(
-                    "SELECT connection_id, iban, owner FROM accounts WHERE id = ?1 AND deleted_ms IS NULL",
-                    [request.account_id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                )
-                .optional()?
-                .ok_or_else(|| CoreError::NotFound {
-                    what: trf("Konto {0}", &[&request.account_id]),
-                })?;
-            let cid = row.0.ok_or_else(|| CoreError::InvalidInput {
-                message: tr("Dieses Konto hat keine Bankverbindung.").into(),
-            })?;
-            (cid, row.1, row.2)
-        };
-        let (key_str, login_name): (String, String) = {
-            let db = self.db()?;
-            db.query_row(
-                "SELECT connector, login_name FROM bank_connections WHERE id = ?1",
-                [connection_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )?
-        };
-        let magic = crate::demo::is_magic_demo_login(&login_name);
-        let demo = demo || magic;
-        if !magic {
-            crate::banking_gate::check_connector(&key_str)?;
-        }
-        let kind = ConnectorKind::from_str(&key_str).ok_or_else(|| CoreError::InvalidInput {
-            message: format!("unknown connector {key_str}"),
-        })?;
-        if !matches!(
-            kind,
-            ConnectorKind::VolksbankKasselGoettingen
-                | ConnectorKind::Direkt1822
-                | ConnectorKind::FinTsGeneric
-                | ConnectorKind::Bunq
-        ) {
-            return Err(CoreError::InvalidInput {
-                message: tr("Überweisungen sind nur für FinTS- und bunq-Konten möglich.").into(),
-            });
-        }
+        let (connection_id, iban, owner, key_str, kind, demo) =
+            self.transfer_source(request.account_id, demo)?;
         let exec_date = request
             .execution_date
             .as_deref()
@@ -1119,11 +1079,6 @@ impl Vault {
                     .into(),
             });
         }
-        if iban.is_empty() {
-            return Err(CoreError::InvalidInput {
-                message: tr("Das Konto hat keine IBAN.").into(),
-            });
-        }
         // Reuse the sync session set-up (settings, PIN, connector state).
         let sync = self.clone().begin_sync(connection_id, secret, demo)?;
         let ctx = sync.clone_context()?;
@@ -1147,6 +1102,102 @@ impl Vault {
             make_connector_for(kind, &key_str, demo),
             ctx,
             job,
+            request.account_id,
+        )))
+    }
+
+    /// Prepares a batch transfer (Sammelüberweisung, HKCCM). Validates every
+    /// payment; the first faulty one aborts with its position.
+    pub fn begin_batch_transfer(
+        self: Arc<Self>,
+        request: BatchTransferRequest,
+        secret: String,
+        demo: bool,
+    ) -> Result<Arc<TransferSession>, CoreError> {
+        use crate::connectors::fints::sepa;
+        if request.payments.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: tr("Die Sammelüberweisung enthält keine Zahlung.").into(),
+            });
+        }
+        let mut payments = Vec::with_capacity(request.payments.len());
+        for (i, p) in request.payments.iter().enumerate() {
+            let payment = sepa::BatchPayment {
+                name: p.name.trim().to_string(),
+                iban: sepa::normalize_iban(&p.iban),
+                bic: p
+                    .bic
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|b| !b.is_empty())
+                    .map(sepa::normalize_iban),
+                amount_cents: p.amount_cents,
+                purpose: p.purpose.trim().to_string(),
+                end_to_end_id: new_end_to_end_id(),
+            };
+            sepa::validate_batch_payment(i + 1, &payment)?;
+            payments.push(payment);
+        }
+        let total = sepa::batch_total_cents(&payments).ok_or_else(|| CoreError::InvalidInput {
+            message: tr("Die Summe der Sammelüberweisung ist zu groß.").into(),
+        })?;
+        let (connection_id, iban, owner, key_str, kind, demo) =
+            self.transfer_source(request.account_id, demo)?;
+        if !matches!(
+            kind,
+            ConnectorKind::VolksbankKasselGoettingen
+                | ConnectorKind::Direkt1822
+                | ConnectorKind::FinTsGeneric
+        ) {
+            return Err(CoreError::InvalidInput {
+                message: tr("Sammelüberweisungen sind nur für FinTS-Konten möglich.").into(),
+            });
+        }
+        let exec_date = request
+            .execution_date
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_string);
+        if let Some(d) = &exec_date {
+            let parsed = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(|_| {
+                CoreError::InvalidInput {
+                    message: tr("Das Ausführungsdatum ist ungültig (JJJJ-MM-TT).").into(),
+                }
+            })?;
+            if parsed <= chrono::Local::now().date_naive() {
+                return Err(CoreError::InvalidInput {
+                    message: tr("Das Ausführungsdatum muss in der Zukunft liegen.").into(),
+                });
+            }
+        }
+        let sync = self.clone().begin_sync(connection_id, secret, demo)?;
+        let ctx = sync.clone_context()?;
+        let summary = TransferJob {
+            source_iban: iban.clone(),
+            source_owner: owner.clone(),
+            recipient_name: trf("Sammelüberweisung ({0} Zahlungen)", &[&payments.len()]),
+            recipient_iban: String::new(),
+            recipient_bic: None,
+            amount_cents: total,
+            purpose: String::new(),
+            instant: false,
+            execution_date: exec_date.clone(),
+            end_to_end_id: new_end_to_end_id(),
+        };
+        let batch = BatchTransferJob {
+            source_iban: iban,
+            source_owner: owner,
+            payments,
+            batch_booking: request.batch_booking,
+            execution_date: exec_date,
+        };
+        Ok(Arc::new(TransferSession::new_batch(
+            self.clone(),
+            make_connector_for(kind, &key_str, demo),
+            ctx,
+            batch,
+            summary,
             request.account_id,
         )))
     }
@@ -1188,6 +1239,68 @@ impl Vault {
 }
 
 impl Vault {
+    /// Debit account of a transfer: connection, IBAN, owner, connector and the
+    /// gate/kind checks shared by single and batch transfers.
+    #[allow(clippy::type_complexity)]
+    fn transfer_source(
+        &self,
+        account_id: i64,
+        demo: bool,
+    ) -> CoreResult<(i64, String, String, String, ConnectorKind, bool)> {
+        let (connection_id, iban, owner) = {
+            let db = self.db()?;
+            let row: (Option<i64>, String, String) = db
+                .query_row(
+                    "SELECT connection_id, iban, owner FROM accounts WHERE id = ?1 AND deleted_ms IS NULL",
+                    [account_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?
+                .ok_or_else(|| CoreError::NotFound {
+                    what: trf("Konto {0}", &[&account_id]),
+                })?;
+            let cid = row.0.ok_or_else(|| CoreError::InvalidInput {
+                message: tr("Dieses Konto hat keine Bankverbindung.").into(),
+            })?;
+            (cid, row.1, row.2)
+        };
+        let (key_str, login_name): (String, String) = {
+            let db = self.db()?;
+            db.query_row(
+                "SELECT connector, login_name FROM bank_connections WHERE id = ?1",
+                [connection_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?
+        };
+        let magic = crate::demo::is_magic_demo_login(&login_name);
+        let demo = demo || magic;
+        if !magic {
+            crate::banking_gate::check_connector(&key_str)?;
+        }
+        let kind = ConnectorKind::from_str(&key_str).ok_or_else(|| CoreError::InvalidInput {
+            message: format!("unknown connector {key_str}"),
+        })?;
+        if !matches!(
+            kind,
+            ConnectorKind::VolksbankKasselGoettingen
+                | ConnectorKind::Direkt1822
+                | ConnectorKind::FinTsGeneric
+                | ConnectorKind::Bunq
+        ) {
+            return Err(CoreError::InvalidInput {
+                message: tr("Überweisungen sind nur für FinTS- und bunq-Konten möglich.").into(),
+            });
+        }
+        if iban.is_empty() {
+            return Err(CoreError::InvalidInput {
+                message: tr("Das Konto hat keine IBAN.").into(),
+            });
+        }
+        Ok((connection_id, iban, owner, key_str, kind, demo))
+    }
+}
+
+impl Vault {
     /// Optimistic booking after a confirmed transfer. It disappears as soon
     /// as the bank's own booking for it arrives in a sync.
     pub(crate) fn record_pending_transfer(
@@ -1214,6 +1327,81 @@ impl Vault {
         )?;
         Vault::apply_rules_inner(&db, true)?;
         Ok(())
+    }
+}
+
+impl Vault {
+    /// After a confirmed batch transfer: scheduled ones go to "Geplant", the
+    /// rest become optimistic bookings (one for the sum or one per payment).
+    pub(crate) fn record_batch_transfer(
+        &self,
+        account_id: i64,
+        batch: &BatchTransferJob,
+        summary: &TransferJob,
+    ) -> CoreResult<()> {
+        if batch.execution_date.is_some() {
+            return self.record_batch_planned(account_id, batch, summary);
+        }
+        self.record_batch_pending(account_id, batch, summary, "(vorgemerkt)")
+    }
+
+    fn record_batch_planned(
+        &self,
+        account_id: i64,
+        batch: &BatchTransferJob,
+        summary: &TransferJob,
+    ) -> CoreResult<()> {
+        if batch.batch_booking {
+            return self.record_planned_transfer(account_id, summary);
+        }
+        for p in &batch.payments {
+            self.record_planned_transfer(account_id, &payment_job(batch, summary, p))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_batch_pending(
+        &self,
+        account_id: i64,
+        batch: &BatchTransferJob,
+        summary: &TransferJob,
+        state: &str,
+    ) -> CoreResult<()> {
+        if batch.batch_booking {
+            return self.record_pending_transfer(
+                account_id,
+                summary,
+                &format!("Sammelüberweisung {state}"),
+            );
+        }
+        for p in &batch.payments {
+            self.record_pending_transfer(
+                account_id,
+                &payment_job(batch, summary, p),
+                &format!("Überweisung {state}"),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// One payment of a batch as a single-transfer job (for per-payment bookings).
+fn payment_job(
+    batch: &BatchTransferJob,
+    summary: &TransferJob,
+    p: &crate::connectors::fints::sepa::BatchPayment,
+) -> TransferJob {
+    TransferJob {
+        source_iban: batch.source_iban.clone(),
+        source_owner: batch.source_owner.clone(),
+        recipient_name: p.name.clone(),
+        recipient_iban: p.iban.clone(),
+        recipient_bic: p.bic.clone(),
+        amount_cents: p.amount_cents,
+        purpose: p.purpose.clone(),
+        instant: false,
+        execution_date: summary.execution_date.clone(),
+        end_to_end_id: p.end_to_end_id.clone(),
     }
 }
 

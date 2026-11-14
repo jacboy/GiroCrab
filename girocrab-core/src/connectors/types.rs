@@ -503,6 +503,17 @@ pub trait BankConnector: Send {
             message: tr("Für diese Bank werden Überweisungen nicht unterstützt.").into(),
         })
     }
+    /// Submit a batch transfer (Sammelüberweisung, HKCCM). Same session rules
+    /// as `send_transfer`.
+    async fn send_batch_transfer(
+        &mut self,
+        _ctx: &ConnectContext,
+        _job: &BatchTransferJob,
+    ) -> CoreResult<Phase> {
+        Err(CoreError::InvalidInput {
+            message: tr("Für diese Bank werden Sammelüberweisungen nicht unterstützt.").into(),
+        })
+    }
     /// After `send_transfer` reached `Ready`: executed (instant or regular),
     /// instant declined before any approval, or result unknown.
     /// Default: executed as a regular transfer.
@@ -519,6 +530,18 @@ pub trait BankConnector: Send {
     fn has_open_order(&self) -> bool {
         false
     }
+}
+
+/// Batch transfer (Sammelüberweisung): one debit account, many payments.
+#[derive(Debug, Clone)]
+pub struct BatchTransferJob {
+    pub source_iban: String,
+    pub source_owner: String,
+    pub payments: Vec<crate::connectors::fints::sepa::BatchPayment>,
+    /// true = the bank books one sum, false = one booking per payment
+    /// (only if the bank allows it, see `BatchParams`).
+    pub batch_booking: bool,
+    pub execution_date: Option<String>,
 }
 
 /// Transfer request plus the source account data resolved from the vault.

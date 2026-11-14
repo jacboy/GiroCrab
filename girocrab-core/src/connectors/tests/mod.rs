@@ -1103,6 +1103,7 @@ async fn demo_transfer_flow_adds_pending_booking_and_suggests_recipient() {
 mod account_selection;
 mod bank_name;
 mod banking_gate;
+mod batch_transfer;
 mod content_id;
 mod statements_auto;
 mod transfer_cancel;

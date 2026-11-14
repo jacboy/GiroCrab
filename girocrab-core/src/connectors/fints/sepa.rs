@@ -310,6 +310,137 @@ pub fn build_pain001(p: &Pain001) -> CoreResult<String> {
     ))
 }
 
+/// One payment of a batch transfer (Sammelüberweisung).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchPayment {
+    pub name: String,
+    pub iban: String,
+    pub bic: Option<String>,
+    pub amount_cents: i64,
+    pub purpose: String,
+    /// EndToEndId, unique per payment (`NOTPROVIDED` when empty).
+    pub end_to_end_id: String,
+}
+
+pub struct Pain001Batch<'a> {
+    pub message_id: &'a str,
+    /// ISO date-time, e.g. 2026-11-09T10:15:00
+    pub created: &'a str,
+    /// ISO date (YYYY-MM-DD), one for the whole batch.
+    pub execution_date: &'a str,
+    pub debtor_name: &'a str,
+    pub debtor_iban: &'a str,
+    pub debtor_bic: &'a str,
+    pub payments: &'a [BatchPayment],
+    pub version: PainVersion,
+    /// `true` = the bank books the batch as one entry (`BtchBookg` true),
+    /// `false` = one booking per payment.
+    pub batch_booking: bool,
+}
+
+/// Sum of all payments in cents; `None` on overflow.
+pub fn batch_total_cents(payments: &[BatchPayment]) -> Option<i64> {
+    payments
+        .iter()
+        .try_fold(0i64, |acc, p| acc.checked_add(p.amount_cents))
+}
+
+/// Checks one payment; the message names the 1-based position.
+pub fn validate_batch_payment(position: usize, p: &BatchPayment) -> CoreResult<()> {
+    let fail = |msg: &str| CoreError::InvalidInput {
+        message: crate::i18n::trf("Zahlung {0}: {1}", &[&position, &msg]),
+    };
+    if p.name.trim().is_empty() {
+        return Err(fail(tr("Der Empfängername fehlt.")));
+    }
+    if !validate_iban(&p.iban) {
+        return Err(fail(tr("Die Empfänger-IBAN ist ungültig.")));
+    }
+    if p.amount_cents <= 0 {
+        return Err(fail(tr("Der Betrag muss größer als 0 sein.")));
+    }
+    Ok(())
+}
+
+/// Builds a batch `pain.001` document (UTF-8): one `PmtInf` with one
+/// `CdtTrfTxInf` per payment, `NbOfTxs` and `CtrlSum` in header and block.
+pub fn build_pain001_batch(p: &Pain001Batch) -> CoreResult<String> {
+    if p.payments.is_empty() {
+        return Err(CoreError::InvalidInput {
+            message: tr("Die Sammelüberweisung enthält keine Zahlung.").into(),
+        });
+    }
+    for (i, pay) in p.payments.iter().enumerate() {
+        validate_batch_payment(i + 1, pay)?;
+    }
+    let total = batch_total_cents(p.payments).ok_or_else(|| CoreError::InvalidInput {
+        message: tr("Die Summe der Sammelüberweisung ist zu groß.").into(),
+    })?;
+    let sum = format_amount(total);
+    let count = p.payments.len();
+    let msg_id = xml_escape(&clip(p.message_id, 35));
+    let debtor = xml_escape(&clip(p.debtor_name, 70));
+    let d_iban = normalize_iban(p.debtor_iban);
+    let bic_tag = match p.version {
+        PainVersion::V03 => "BIC",
+        PainVersion::V09 => "BICFI",
+    };
+    let d_agent = if validate_bic(p.debtor_bic) {
+        format!("<{bic_tag}>{}</{bic_tag}>", normalize_iban(p.debtor_bic))
+    } else {
+        "<Othr><Id>NOTPROVIDED</Id></Othr>".to_string()
+    };
+    let exec = xml_escape(p.execution_date);
+    let exec = match p.version {
+        PainVersion::V03 => exec,
+        PainVersion::V09 => format!("<Dt>{exec}</Dt>"),
+    };
+    let mut txs = String::new();
+    for pay in p.payments {
+        let amount = format_amount(pay.amount_cents);
+        let c_agent = match pay.bic.as_deref().filter(|b| validate_bic(b)) {
+            Some(b) => format!(
+                "<CdtrAgt><FinInstnId><{bic_tag}>{}</{bic_tag}></FinInstnId></CdtrAgt>",
+                normalize_iban(b)
+            ),
+            None => String::new(),
+        };
+        let purpose = xml_escape(&clip(&pay.purpose, 140));
+        let rmt = if purpose.is_empty() {
+            String::new()
+        } else {
+            format!("<RmtInf><Ustrd>{purpose}</Ustrd></RmtInf>")
+        };
+        let e2e = if pay.end_to_end_id.trim().is_empty() {
+            "NOTPROVIDED".to_string()
+        } else {
+            xml_escape(&clip(&pay.end_to_end_id, 35))
+        };
+        txs.push_str(&format!(
+            "<CdtTrfTxInf><PmtId><EndToEndId>{e2e}</EndToEndId></PmtId>\
+<Amt><InstdAmt Ccy=\"EUR\">{amount}</InstdAmt></Amt>{c_agent}\
+<Cdtr><Nm>{}</Nm></Cdtr><CdtrAcct><Id><IBAN>{}</IBAN></Id></CdtrAcct>{rmt}</CdtTrfTxInf>",
+            xml_escape(&clip(&pay.name, 70)),
+            normalize_iban(&pay.iban),
+        ));
+    }
+    let ns = p.version.descriptor();
+    Ok(format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+<Document xmlns=\"{ns}\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\
+<CstmrCdtTrfInitn>\
+<GrpHdr><MsgId>{msg_id}</MsgId><CreDtTm>{created}</CreDtTm><NbOfTxs>{count}</NbOfTxs><CtrlSum>{sum}</CtrlSum>\
+<InitgPty><Nm>{debtor}</Nm></InitgPty></GrpHdr>\
+<PmtInf><PmtInfId>{msg_id}</PmtInfId><PmtMtd>TRF</PmtMtd><BtchBookg>{batch}</BtchBookg><NbOfTxs>{count}</NbOfTxs><CtrlSum>{sum}</CtrlSum>\
+<PmtTpInf><SvcLvl><Cd>SEPA</Cd></SvcLvl></PmtTpInf><ReqdExctnDt>{exec}</ReqdExctnDt>\
+<Dbtr><Nm>{debtor}</Nm></Dbtr><DbtrAcct><Id><IBAN>{d_iban}</IBAN></Id></DbtrAcct>\
+<DbtrAgt><FinInstnId>{d_agent}</FinInstnId></DbtrAgt><ChrgBr>SLEV</ChrgBr>\
+{txs}</PmtInf></CstmrCdtTrfInitn></Document>",
+        created = xml_escape(p.created),
+        batch = p.batch_booking,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,5 +618,95 @@ mod tests {
         assert!(xml.contains("<CdtrAgt><FinInstnId><BIC>COBADEFFXXX</BIC>"));
         assert!(xml.contains("<Nm>Max Muster</Nm>"));
         assert!(xml.contains("<Ustrd>a b</Ustrd>"));
+    }
+
+    fn pay(name: &str, iban: &str, cents: i64, e2e: &str) -> BatchPayment {
+        BatchPayment {
+            name: name.into(),
+            iban: iban.into(),
+            bic: None,
+            amount_cents: cents,
+            purpose: "Beitrag".into(),
+            end_to_end_id: e2e.into(),
+        }
+    }
+
+    fn batch<'a>(payments: &'a [BatchPayment], booking: bool) -> Pain001Batch<'a> {
+        Pain001Batch {
+            message_id: "GC-B1",
+            created: "2026-11-09T10:00:00",
+            execution_date: "2026-11-09",
+            debtor_name: "Verein e.V.",
+            debtor_iban: "DE02120300000000202051",
+            debtor_bic: "BYLADEM1001",
+            payments,
+            version: PainVersion::V03,
+            batch_booking: booking,
+        }
+    }
+
+    #[test]
+    fn batch_has_count_sum_and_one_block_per_payment() {
+        let pays = [
+            pay("Anna Müller", "DE89370400440532013000", 6_000, "E1"),
+            pay("Ben & Co", "DE02120300000000202051", 3_050, "E2"),
+            pay("Cem", "DE75512108001245126199", 1, "E3"),
+        ];
+        let xml = build_pain001_batch(&batch(&pays, true)).unwrap();
+        assert_eq!(xml.matches("<CdtTrfTxInf>").count(), 3);
+        assert_eq!(xml.matches("<NbOfTxs>3</NbOfTxs>").count(), 2); // header + block
+        assert_eq!(xml.matches("<CtrlSum>90.51</CtrlSum>").count(), 2);
+        assert_eq!(xml.matches("<PmtInf>").count(), 1);
+        assert!(xml.contains("<BtchBookg>true</BtchBookg>"));
+        assert!(xml.contains("<Nm>Anna Mueller</Nm>")); // SEPA character set
+        assert!(xml.contains("<Nm>Ben  Co</Nm>") || xml.contains("<Nm>Ben Co</Nm>"));
+        assert!(xml.contains("<EndToEndId>E2</EndToEndId>"));
+        assert!(!xml.contains("INST"));
+    }
+
+    #[test]
+    fn batch_booking_flag_follows_the_choice() {
+        let pays = [pay("A", "DE89370400440532013000", 100, "")];
+        let single = build_pain001_batch(&batch(&pays, false)).unwrap();
+        assert!(single.contains("<BtchBookg>false</BtchBookg>"));
+        assert!(single.contains("<EndToEndId>NOTPROVIDED</EndToEndId>"));
+    }
+
+    #[test]
+    fn batch_09_wraps_date_and_uses_bicfi() {
+        let mut pays = [pay("A", "DE89370400440532013000", 100, "E1")];
+        pays[0].bic = Some("COBADEFFXXX".into());
+        let mut b = batch(&pays, true);
+        b.version = PainVersion::V09;
+        let xml = build_pain001_batch(&b).unwrap();
+        assert!(xml.contains("<ReqdExctnDt><Dt>2026-11-09</Dt></ReqdExctnDt>"));
+        assert!(xml.contains("<CdtrAgt><FinInstnId><BICFI>COBADEFFXXX</BICFI>"));
+    }
+
+    #[test]
+    fn batch_rejects_empty_and_names_the_bad_position() {
+        assert!(build_pain001_batch(&batch(&[], true)).is_err());
+        let pays = [
+            pay("A", "DE89370400440532013000", 100, "E1"),
+            pay("B", "DE89370400440532013001", 100, "E2"), // checksum
+        ];
+        let err = build_pain001_batch(&batch(&pays, true))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains('2'), "{err}");
+        let pays = [pay("A", "DE89370400440532013000", 0, "E1")];
+        assert!(build_pain001_batch(&batch(&pays, true)).is_err());
+        let pays = [pay("  ", "DE89370400440532013000", 5, "E1")];
+        assert!(build_pain001_batch(&batch(&pays, true)).is_err());
+    }
+
+    #[test]
+    fn batch_total_overflow_is_an_error() {
+        let pays = [
+            pay("A", "DE89370400440532013000", i64::MAX, "E1"),
+            pay("B", "DE89370400440532013000", 1, "E2"),
+        ];
+        assert_eq!(batch_total_cents(&pays), None);
+        assert!(build_pain001_batch(&batch(&pays, true)).is_err());
     }
 }

@@ -51,8 +51,8 @@ use serde::{Deserialize, Serialize};
 
 use self::syntax::{escape, parse_response, Segment, SegmentBuilder};
 use super::{
-    BankConnector, Challenge, ChallengeKind, ChallengeResponse, ConnectContext, FetchResult,
-    PayeeCheck, PayeeMatch, Phase, RemoteAccount, TransferJob, TransferResult,
+    BankConnector, BatchTransferJob, Challenge, ChallengeKind, ChallengeResponse, ConnectContext,
+    FetchResult, PayeeCheck, PayeeMatch, Phase, RemoteAccount, TransferJob, TransferResult,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::i18n::{tr, trf};
@@ -80,6 +80,9 @@ struct FinTsState {
     /// parameter segments HICCSS / HIIPZS / HICSES.
     #[serde(default)]
     pain_formats: HashMap<String, Vec<String>>,
+    /// Batch transfer parameters from HICCMS; `None` = not offered.
+    #[serde(default)]
+    batch_params: Option<BatchParams>,
     /// Payment status report format for the name check (HIVPPS), "" = none.
     #[serde(default)]
     vop_format: String,
@@ -99,6 +102,7 @@ const IMPLEMENTED: &[(&str, &[u32])] = &[
     ("HKCCS", &[1]),
     ("HKIPZ", &[1]),
     ("HKCSE", &[1]),
+    ("HKCCM", &[1]),
     ("HKVPP", &[1]),
     ("HKKAZ", &[5, 6, 7]),
     ("HKTAN", &[6, 7]),
@@ -107,6 +111,30 @@ const IMPLEMENTED: &[(&str, &[u32])] = &[
     ("HKEKA", &[3, 4, 5]),
     ("HKWPD", &[5, 6]),
 ];
+
+/// What the bank allows for batch transfers (BPD HICCMS).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct BatchParams {
+    /// Most payments in one order, 0 = not stated.
+    max_count: u32,
+    /// The order must carry the control sum (Summenfeld).
+    sum_required: bool,
+    /// The bank accepts "one booking per payment".
+    single_booking_allowed: bool,
+}
+
+/// HICCMS: header, max. orders, signatures, security class, then the
+/// parameter DEG: max. payments, Summenfeld required, single booking
+/// allowed, pain descriptors. Tolerates missing fields (stricter reading
+/// is only possible against a real BPD).
+fn parse_batch_params(seg: &Segment) -> BatchParams {
+    let flag = |s: &str| s == "J";
+    BatchParams {
+        max_count: seg.get(4, 0).parse().unwrap_or(0),
+        sum_required: flag(seg.get(4, 1)),
+        single_booking_allowed: flag(seg.get(4, 2)),
+    }
+}
 
 /// Account from the user parameter data (HIUPD).
 #[derive(Debug, Clone, Default)]
@@ -321,6 +349,8 @@ struct PreparedOrder {
     instant: bool,
     recipient_name: String,
     recipient_iban: String,
+    /// HKCCM only: control sum in cents and "one booking per payment".
+    batch: Option<(i64, bool)>,
 }
 
 /// Longest wait between two name-check polls, and in total.
@@ -716,6 +746,7 @@ impl FinTsConnector {
             ("HICCSS", "HKCCS"),
             ("HIIPZS", "HKIPZ"),
             ("HICSES", "HKCSE"),
+            ("HICCMS", "HKCCM"),
         ] {
             // Merge across BPD messages (anonymous and authenticated dialog).
             for f in pain_formats(reply, seg) {
@@ -724,6 +755,9 @@ impl FinTsConnector {
                     list.push(f);
                 }
             }
+        }
+        if let Some(seg) = reply.first("HICCMS") {
+            self.st.batch_params = Some(parse_batch_params(seg));
         }
         if let Some(vpps) = reply.first("HIVPPS") {
             let (format, orders) = vop_parameters(vpps);
@@ -1484,6 +1518,7 @@ impl FinTsConnector {
             instant,
             recipient_name: job.recipient_name.clone(),
             recipient_iban: job.recipient_iban.clone(),
+            batch: None,
         });
         self.vop_id = None;
         self.vop_with_tan = false;
@@ -1513,6 +1548,117 @@ impl FinTsConnector {
         // confirms (`confirm_payee`); cancelling ends the dialog instead.
         self.vop_pending = Some(check.result);
         Ok(Phase::ConfirmPayee(check))
+    }
+
+    /// Sends HKCCM + HKTAN process 4. No name check for batches: the bank
+    /// answers with what it requires.
+    async fn start_batch(
+        &mut self,
+        ctx: &ConnectContext,
+        job: &BatchTransferJob,
+    ) -> CoreResult<Phase> {
+        let seg_id: &'static str = "HKCCM";
+        let not_allowed = || {
+            CoreError::Bank {
+            code: seg_id.into(),
+            message: tr("Dieses Konto oder diese Bank erlaubt keine Sammelüberweisungen per FinTS (HKCCM). Bitte in der Banking-App überweisen.").into(),
+        }
+        };
+        let Some(params) = self
+            .st
+            .batch_params
+            .clone()
+            .filter(|_| self.bank_supports(seg_id))
+        else {
+            return Err(not_allowed());
+        };
+        if params.max_count > 0 && job.payments.len() > params.max_count as usize {
+            return Err(CoreError::InvalidInput {
+                message: trf(
+                    "Die Bank erlaubt höchstens {0} Zahlungen pro Sammelüberweisung.",
+                    &[&params.max_count],
+                ),
+            });
+        }
+        if !job.batch_booking && !params.single_booking_allowed {
+            return Err(CoreError::InvalidInput {
+                message: tr("Die Bank bucht Sammelüberweisungen nur als Sammelbuchung.").into(),
+            });
+        }
+        if self.sec() == "999" {
+            return Err(CoreError::Bank {
+                code: "HKTAN".into(),
+                message: tr("Für Überweisungen ist ein TAN-Verfahren nötig; es wurde keines gefunden. Bitte zuerst eine Synchronisation mit TAN-Verfahren durchführen.").into(),
+            });
+        }
+        let mut errors = Vec::new();
+        let accounts = self.account_list(ctx, &mut errors).await;
+        let want = sepa::normalize_iban(&job.source_iban);
+        let (acc, upd) = accounts
+            .into_iter()
+            .find(|(a, _)| sepa::normalize_iban(&a.iban) == want)
+            .ok_or_else(|| CoreError::NotFound {
+                what: trf(
+                    "Konto {0} bei der Bank{1}",
+                    &[&job.source_iban, &String::new()],
+                ),
+            })?;
+        if let Some(u) = &upd {
+            if !u.allowed.is_empty() && !u.allowed.contains(seg_id) {
+                return Err(not_allowed());
+            }
+        }
+        let version = self.pain_version(seg_id).unwrap_or(sepa::PainVersion::V03);
+        let (date, time) = Self::now();
+        let created = format!(
+            "{}-{}-{}T{}:{}:{}",
+            &date[..4],
+            &date[4..6],
+            &date[6..],
+            &time[..2],
+            &time[2..4],
+            &time[4..]
+        );
+        let exec = job
+            .execution_date
+            .clone()
+            .unwrap_or_else(|| format!("{}-{}-{}", &date[..4], &date[4..6], &date[6..]));
+        let msg_id = format!("GC{date}{time}{:08X}", rand::random::<u32>());
+        let owner = if job.source_owner.trim().is_empty() {
+            "Kontoinhaber"
+        } else {
+            job.source_owner.trim()
+        };
+        let xml = sepa::build_pain001_batch(&sepa::Pain001Batch {
+            message_id: &msg_id,
+            created: &created,
+            execution_date: &exec,
+            debtor_name: owner,
+            debtor_iban: &acc.iban,
+            debtor_bic: &acc.bic,
+            payments: &job.payments,
+            version,
+            batch_booking: job.batch_booking,
+        })?;
+        let total =
+            sepa::batch_total_cents(&job.payments).ok_or_else(|| CoreError::InvalidInput {
+                message: tr("Die Summe der Sammelüberweisung ist zu groß.").into(),
+            })?;
+        self.order = Some(PreparedOrder {
+            seg_id,
+            kti: Self::kti(&acc),
+            descriptor: version.descriptor(),
+            xml,
+            instant: false,
+            recipient_name: String::new(),
+            recipient_iban: String::new(),
+            batch: Some((total, !job.batch_booking)),
+        });
+        self.vop_id = None;
+        self.vop_with_tan = false;
+        self.vop_pending = None;
+        let reply = self.send_order(ctx, Vop::None).await?;
+        self.finish_submit(&reply)
     }
 
     /// Instant not possible before anything was sent: nothing to approve.
@@ -1559,10 +1705,24 @@ impl FinTsConnector {
             }
         }
         self.order_seg_no = n;
+        let mut seg =
+            SegmentBuilder::new(order.seg_id, n, self.version(order.seg_id)).raw(&order.kti);
+        if let Some((total, single)) = order.batch {
+            // HKCCM: Summenfeld, Einzelbuchung gewünscht (only what the BPD asks for).
+            let p = self.st.batch_params.clone().unwrap_or_default();
+            seg = if p.sum_required {
+                seg.de(&[&sepa::format_amount(total).replace('.', ","), "EUR"])
+            } else {
+                seg.raw("")
+            };
+            seg = if p.single_booking_allowed {
+                seg.de(&[if single { "J" } else { "N" }])
+            } else {
+                seg.raw("")
+            };
+        }
         payload.push(
-            SegmentBuilder::new(order.seg_id, n, self.version(order.seg_id))
-                .raw(&order.kti)
-                .de(&[order.descriptor])
+            seg.de(&[order.descriptor])
                 .binary(order.xml.as_bytes())
                 .build(),
         );
@@ -2462,6 +2622,22 @@ impl BankConnector for FinTsConnector {
         r
     }
 
+    async fn send_batch_transfer(
+        &mut self,
+        ctx: &ConnectContext,
+        job: &BatchTransferJob,
+    ) -> CoreResult<Phase> {
+        self.transferring = true;
+        self.result = TransferResult::default();
+        self.order_submitted = false;
+        self.order = None;
+        let r = self.start_batch(ctx, job).await;
+        if r.is_err() {
+            self.transferring = false;
+        }
+        r
+    }
+
     fn transfer_result(&self) -> TransferResult {
         self.result.clone()
     }
@@ -2952,6 +3128,7 @@ mod tests {
             instant: false,
             recipient_name: "Erika Musterfrau".into(),
             recipient_iban: "DE89370400440532013000".into(),
+            batch: None,
         });
     }
 
@@ -2967,6 +3144,40 @@ mod tests {
         // Consorsbank sends no HIVPPS: no name check.
         let c = FinTsConnector::new("76030080");
         assert!(c.st.vop_format.is_empty());
+    }
+
+    #[test]
+    fn reads_batch_parameters_and_builds_hkccm() {
+        let raw =
+            b"HICCMS:12:1:3+1+1+0+500:J:J:urn?:iso?:std?:iso?:20022?:tech?:xsd?:pain.001.001.09'";
+        let mut c = FinTsConnector::new("20041111");
+        c.learn_bpd(&reply(raw));
+        assert_eq!(
+            c.st.batch_params,
+            Some(BatchParams {
+                max_count: 500,
+                sum_required: true,
+                single_booking_allowed: true
+            })
+        );
+        assert_eq!(
+            c.st.pain_formats["HKCCM"],
+            vec![sepa::PAIN_09_DESCRIPTOR.to_string()]
+        );
+        order_for(&mut c);
+        if let Some(o) = c.order.as_mut() {
+            o.seg_id = "HKCCM";
+            o.batch = Some((123_450, true));
+        }
+        let text =
+            String::from_utf8_lossy(&c.order_payload(Vop::None).unwrap().concat()).to_string();
+        assert!(text.contains("HKCCM:3:"), "{text}");
+        assert!(text.contains("+1234,50:EUR+J+"), "{text}");
+        // Without the BPD flags neither optional field is sent.
+        c.st.batch_params = Some(BatchParams::default());
+        let text =
+            String::from_utf8_lossy(&c.order_payload(Vop::None).unwrap().concat()).to_string();
+        assert!(!text.contains("EUR+"), "{text}");
     }
 
     #[test]

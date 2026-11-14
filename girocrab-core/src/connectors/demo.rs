@@ -240,6 +240,27 @@ impl BankConnector for DemoConnector {
         Ok(Phase::Challenge(c))
     }
 
+    async fn send_batch_transfer(
+        &mut self,
+        ctx: &ConnectContext,
+        job: &super::BatchTransferJob,
+    ) -> CoreResult<Phase> {
+        let total = job.payments.iter().map(|p| p.amount_cents).sum();
+        let summary = TransferJob {
+            source_iban: job.source_iban.clone(),
+            source_owner: job.source_owner.clone(),
+            recipient_name: "Sammelüberweisung".into(),
+            recipient_iban: String::new(),
+            recipient_bic: None,
+            amount_cents: total,
+            purpose: String::new(),
+            instant: false,
+            execution_date: job.execution_date.clone(),
+            end_to_end_id: String::new(),
+        };
+        self.send_transfer(ctx, &summary).await
+    }
+
     fn transfer_result(&self) -> super::TransferResult {
         self.result.clone()
     }
