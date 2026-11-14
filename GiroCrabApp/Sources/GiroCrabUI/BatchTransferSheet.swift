@@ -113,12 +113,14 @@ struct BatchTransferSheet: View {
                     }
                 }
                 .frame(width: 170 * textScale)
-            }
-            if draft.scheduled {
-                DatePicker("Ausführungsdatum", selection: $draft.executionDate,
-                           in: (Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())...,
-                           displayedComponents: .date)
-                    .frame(maxWidth: 320 * textScale)
+                // Always there (disabled unless scheduled): the layout does not jump.
+                labeled("Ausführungsdatum") {
+                    DatePicker("Ausführungsdatum", selection: $draft.executionDate,
+                               in: (Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())...,
+                               displayedComponents: .date)
+                        .disabled(!draft.scheduled)
+                }
+                .fixedSize()
             }
             if let note = draft.importNote {
                 Label(note, systemImage: "doc.text").appFont(.callout).foregroundStyle(Theme.secondary)

@@ -328,6 +328,92 @@ fn card_holds_are_replaced_on_each_sync() {
 }
 
 #[test]
+fn pending_batch_booking_is_replaced_by_the_banks_booking_whatever_its_iban() {
+    let (v, path) = demo_vault();
+    let conn = v
+        .add_bank_connection(ConnectorKind::FinTsGeneric, String::new(), "u".into())
+        .unwrap();
+    let acc = RemoteAccount {
+        external_ref: "f:1".into(),
+        name: "Giro".into(),
+        owner: String::new(),
+        iban: "DE02120300000000202051".into(),
+        account_number: String::new(),
+        currency: "EUR".into(),
+        kind: AccountKind::Checking,
+        balance_cents: 0,
+        balance_date: "2026-11-10".into(),
+    };
+    let fetch = |txs: Vec<RemoteTransaction>| FetchResult {
+        accounts: vec![acc.clone()],
+        transactions: txs,
+        ..Default::default()
+    };
+    store_fetch(&v, ConnectorKind::FinTsGeneric, conn, fetch(vec![])).unwrap();
+    let account_id: i64 = v
+        .db()
+        .unwrap()
+        .query_row(
+            "SELECT id FROM accounts WHERE external_ref = 'f:1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let summary = |e2e: &str, cents: i64| TransferJob {
+        source_iban: acc.iban.clone(),
+        source_owner: "A".into(),
+        recipient_name: "Sammelüberweisung (3 Zahlungen)".into(),
+        recipient_iban: String::new(),
+        recipient_bic: None,
+        amount_cents: cents,
+        purpose: String::new(),
+        instant: false,
+        execution_date: None,
+        end_to_end_id: e2e.into(),
+    };
+    v.record_pending_transfer(
+        account_id,
+        &summary("A", 3_550),
+        "Sammelüberweisung (vorgemerkt)",
+    )
+    .unwrap();
+    v.record_pending_transfer(
+        account_id,
+        &summary("B", 9_900),
+        "Sammelüberweisung (vorgemerkt)",
+    )
+    .unwrap();
+    let pending = || -> i64 {
+        v.db()
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM transactions WHERE external_id LIKE 'pending-%' AND deleted_ms IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(pending(), 2);
+    // The bank books 35,50 € and names the own IBAN as counterparty.
+    let booked = RemoteTransaction {
+        account_ref: "f:1".into(),
+        external_id: "bank-1".into(),
+        booking_date: chrono::Local::now().date_naive().to_string(),
+        value_date: chrono::Local::now().date_naive().to_string(),
+        amount_cents: -3_550,
+        currency: "EUR".into(),
+        counterparty: "A".into(),
+        counterparty_iban: acc.iban.clone(),
+        booking_text: "SAMMELÜBERWEISUNG".into(),
+        ..Default::default()
+    };
+    store_fetch(&v, ConnectorKind::FinTsGeneric, conn, fetch(vec![booked])).unwrap();
+    // Only the matching one is gone; the other batch is still pending.
+    assert_eq!(pending(), 1);
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
 fn revoked_accounts_are_marked_and_new_ones_named() {
     let (v, path) = demo_vault();
     let conn = v

@@ -596,7 +596,7 @@ pub(crate) fn store_fetch(
             crate::security_transactions::link_cash_bookings(&tx)?;
         }
         // Drop optimistic transfer bookings once the bank's real booking arrived
-        // (same account, amount and recipient IBAN) or after 14 days.
+        // (same account, amount and recipient IBAN; a batch: amount only) or after 14 days.
         tx.execute(
             "UPDATE transactions SET deleted_ms = ?1
               WHERE external_id LIKE 'pending-%' AND deleted_ms IS NULL AND (
@@ -604,7 +604,10 @@ pub(crate) fn store_fetch(
                     SELECT 1 FROM transactions r WHERE r.account_id = transactions.account_id
                       AND r.deleted_ms IS NULL
                       AND r.external_id NOT LIKE 'pending-%' AND r.amount_cents = transactions.amount_cents
-                      AND r.counterparty_iban = transactions.counterparty_iban
+                      AND (r.counterparty_iban = transactions.counterparty_iban
+                           -- a batch booking carries no recipient IBAN; banks put
+                           -- whatever they like there (often the own account)
+                           OR transactions.booking_text LIKE 'Sammelüberweisung%')
                       AND r.booking_date >= transactions.booking_date))",
             [crate::user_groups::now_ms()],
         )?;
