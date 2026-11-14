@@ -571,6 +571,11 @@ struct MainSplitView: View {
             CategorizerSheet()
                 .environment(model)
         }
+        .sheet(isPresented: $model.showBatchSheet) {
+            BatchTransferSheet()
+                .environment(model)
+                .interactiveDismissDisabled(model.transferBusy)
+        }
         .sheet(isPresented: $model.showTransferSheet) {
             TransferSheetView()
                 .environment(model)

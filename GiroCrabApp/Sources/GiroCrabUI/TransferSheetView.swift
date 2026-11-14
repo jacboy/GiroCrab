@@ -61,6 +61,9 @@ struct TransferSheetView: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             header
+            if !confirming && model.canBatchTransfer {
+                TransferKindPicker(batch: false).padding(.bottom, 10)
+            }
             Divider()
             if confirming {
                 confirmation

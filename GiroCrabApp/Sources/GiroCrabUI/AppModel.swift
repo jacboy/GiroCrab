@@ -320,6 +320,10 @@ public final class AppModel {
     var activeSession: SyncSession?
     var activeTransfer: TransferSession?
     var showTransferSheet = false
+    /// Batch transfer (#240): sheet, the rows being edited, and whether the running session is one.
+    var showBatchSheet = false
+    var batchDraft = BatchDraft()
+    var activeTransferIsBatch = false
     /// Bumped whenever a sync wrote a row to the Abrufprotokoll (#238); the log window reloads on it.
     var syncLogVersion = 0
     var csvExport = CSVFileDocument(data: Data())
@@ -532,6 +536,9 @@ public final class AppModel {
             // Print dialog (GitHub #53) on last month's demo bookings.
             period = Period.previousMonth()
             showPrintSheet = true
+        case "batch-transfer", "batch-transfer-confirm":
+            batchDraft.rows = BatchRow.samples(50)
+            openBatchTransfer()
         case "transfer", "transfer-confirm":
             if let a = transferAccounts.first { sidebarSelection = .account(a.id) }
             openTransfer()
@@ -998,7 +1005,10 @@ public final class AppModel {
         resetSyncBatch()
         transferBusy = false
         showTransferSheet = false
+        showBatchSheet = false
+        activeTransferIsBatch = false
         transferDraft.pin = ""
+        batchDraft.pin = ""
         Task {
             await session?.cancel()
             _ = await transfer?.cancel()  // result cannot be shown once locked
