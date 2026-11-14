@@ -105,14 +105,14 @@ struct BatchTransferSheet: View {
                         Text("Einzelbuchungen pro Zahlung").tag(true)
                     }
                 }
-                .frame(width: 230 * textScale)
+                .frame(width: 200 * textScale)
                 labeled("Ausführung") {
                     Picker("Ausführung", selection: $draft.scheduled) {
                         Text("Normale Überweisung").tag(false)
                         Text("Terminüberweisung").tag(true)
                     }
                 }
-                .frame(width: 170 * textScale)
+                .frame(width: 150 * textScale)
                 // Always there (disabled unless scheduled): the layout does not jump.
                 labeled("Ausführungsdatum") {
                     DatePicker("Ausführungsdatum", selection: $draft.executionDate,

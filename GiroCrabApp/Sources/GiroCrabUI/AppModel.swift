@@ -536,9 +536,10 @@ public final class AppModel {
             // Print dialog (GitHub #53) on last month's demo bookings.
             period = Period.previousMonth()
             showPrintSheet = true
-        case "batch-transfer", "batch-transfer-confirm":
+        case "batch-transfer", "batch-transfer-confirm", "batch-transfer-scheduled":
             batchDraft.rows = BatchRow.samples(50)
             openBatchTransfer()
+            if name == "batch-transfer-scheduled" { batchDraft.scheduled = true }
         case "transfer", "transfer-confirm":
             if let a = transferAccounts.first { sidebarSelection = .account(a.id) }
             openTransfer()
